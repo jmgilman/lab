@@ -19,5 +19,13 @@ in
         nixpkgs.ansible
         nixpkgs.terraform
       ];
+      commands = [
+        {
+          name = "init";
+          command = cell.lib.mkTaskStr "automation" "init";
+          help = "Initialize LXD";
+          category = "LXD";
+        }
+      ];
     };
   }

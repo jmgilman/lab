@@ -10,7 +10,9 @@
 
       cellBlocks = [
         (std.blockTypes.devshells "devshells")
+        (std.blockTypes.functions "lib")
         (std.blockTypes.nixago "configs")
+        (std.blockTypes.runnables "tasks")
       ];
     }
     {
