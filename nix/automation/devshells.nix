@@ -17,6 +17,7 @@ in
       ];
       packages = [
         nixpkgs.ansible
+        nixpkgs.nickel
         nixpkgs.terraform
       ];
       commands = [
