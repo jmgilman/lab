@@ -9,8 +9,10 @@
       cellsFrom = ./nix;
 
       cellBlocks = [
+        (std.blockTypes.data "constants")
         (std.blockTypes.devshells "devshells")
         (std.blockTypes.functions "lib")
+        (std.blockTypes.installables "packages")
         (std.blockTypes.nixago "configs")
         (std.blockTypes.runnables "tasks")
       ];

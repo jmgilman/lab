@@ -3,6 +3,7 @@
   cell,
 }: let
   inherit (inputs) nixpkgs std;
+  inherit (inputs.cells.packer.packages) packerWithPlugins packerPluginLXD;
   l = nixpkgs.lib // builtins;
 in
   l.mapAttrs (_: std.lib.dev.mkShell) {
@@ -17,8 +18,10 @@ in
       ];
       packages = [
         nixpkgs.ansible
+        nixpkgs.gopass
         nixpkgs.nickel
         nixpkgs.terraform
+        (packerWithPlugins [packerPluginLXD])
       ];
       commands = [
         {
