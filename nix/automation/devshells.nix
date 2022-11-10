@@ -2,7 +2,7 @@
   inputs,
   cell,
 }: let
-  inherit (inputs) nixpkgs std;
+  inherit (inputs) nickel nixpkgs std;
   inherit (inputs.cells.packer.packages) packerWithPlugins packerPluginLXD;
   l = nixpkgs.lib // builtins;
 in
@@ -19,14 +19,13 @@ in
       packages = [
         nixpkgs.ansible
         nixpkgs.gopass
-        nixpkgs.nickel
         nixpkgs.terraform
+        nickel.packages.default
         (packerWithPlugins [packerPluginLXD])
       ];
-      commands = [
+      commands = l.map cell.lib.mkTaskCommand [
         {
           name = "init";
-          command = cell.lib.mkTaskStr "automation" "init";
           help = "Initialize LXD";
           category = "LXD";
         }
