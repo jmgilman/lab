@@ -2,19 +2,20 @@
   inputs,
   cell,
 }: let
-  inherit (inputs) nickel nixpkgs std;
+  inherit (inputs) nickel nixpkgs std utils;
   inherit (inputs.cells.packer.packages) packerWithPlugins packerPluginLXD;
+  inherit (inputs.utils) tasks;
   l = nixpkgs.lib // builtins;
+
+  # Convert tasks into devshell commands
+  taskCommands = l.mapAttrsToList (_: task: tasks.lib.mkTaskCommand {inherit task;}) cell.tasks;
 in
   l.mapAttrs (_: std.lib.dev.mkShell) {
     default = {...}: {
       name = "lab devshell";
-      imports = [std.std.devshellProfiles.default];
-      nixago = [
-        cell.configs.conform
-        cell.configs.lefthook
-        cell.configs.prettier
-        cell.configs.treefmt
+      imports = [
+        (utils.devshell.profiles.core {})
+        (utils.devshell.profiles.format {})
       ];
       packages = [
         nixpkgs.ansible
@@ -23,12 +24,6 @@ in
         nickel.packages.default
         (packerWithPlugins [packerPluginLXD])
       ];
-      commands = l.map cell.lib.mkTaskCommand [
-        {
-          name = "init";
-          help = "Initialize LXD";
-          category = "LXD";
-        }
-      ];
+      commands = [] ++ taskCommands;
     };
   }

@@ -4,6 +4,10 @@
   inputs.std.url = "github:divnix/std";
   inputs.std.inputs.nixpkgs.follows = "nixpkgs";
 
+  inputs.utils.url = "nix-utils";
+  inputs.utils.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.utils.inputs.std.follows = "std";
+
   inputs.nickel.url = "github:tweag/nickel";
   inputs.nickel.inputs.nixpkgs.follows = "nixpkgs";
 
