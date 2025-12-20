@@ -1,0 +1,124 @@
+# Talos Platform Cluster Configuration
+# Generated configs will be in ./clusterconfig/ (gitignored)
+# Run `talhelper genconfig` to regenerate
+---
+clusterName: platform
+talosVersion: v1.9.1
+kubernetesVersion: v1.32.0
+endpoint: https://10.10.30.10:6443
+
+# Allow control plane nodes to run workloads (3-node cluster)
+allowSchedulingOnControlPlanes: true
+
+# Cluster networking
+clusterPodNets:
+  - 10.244.0.0/16
+clusterSvcNets:
+  - 10.96.0.0/12
+
+# CNI - using Cilium (deployed via Argo CD, not embedded)
+cniConfig:
+  name: none
+
+# Additional SANs for API server certificate
+additionalApiServerCertSans:
+  - platform.lab.local
+  - 10.10.30.10
+
+additionalMachineCertSans:
+  - platform.lab.local
+  - 10.10.30.10
+
+# Node definitions
+nodes:
+  # CP-1: UM760 Physical Node
+  # Hybrid Trunk: VLAN 20 (native) for PXE, VLAN 30 (tagged) for platform traffic
+  - hostname: cp-1
+    ipAddress: 10.10.30.10
+    controlPlane: true
+    installDiskSelector:
+      size: ">= 256GB"
+      type: nvme
+    # UM760 uses hybrid trunk: VLAN 20 native, VLAN 30 tagged
+    # Configure VLAN 30 sub-interface for platform traffic
+    networkInterfaces:
+      - deviceSelector:
+          hardwareAddr: "*"
+        dhcp: false
+        vlans:
+          - vlanId: 30
+            addresses:
+              - 10.10.30.10/24
+            routes:
+              - network: 0.0.0.0/0
+                gateway: 10.10.30.1
+            mtu: 1500
+    nameservers:
+      - 10.10.30.1
+    nodeLabels:
+      topology.kubernetes.io/zone: physical
+      node.kubernetes.io/instance-type: um760
+
+  # CP-2: Harvester VM
+  # Direct VLAN 30 access (no trunking needed for VMs)
+  - hostname: cp-2
+    ipAddress: 10.10.30.11
+    controlPlane: true
+    installDiskSelector:
+      size: ">= 100GB"
+    networkInterfaces:
+      - deviceSelector:
+          hardwareAddr: "*"
+        dhcp: false
+        addresses:
+          - 10.10.30.11/24
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 10.10.30.1
+        mtu: 1500
+    nameservers:
+      - 10.10.30.1
+    nodeLabels:
+      topology.kubernetes.io/zone: virtual
+      node.kubernetes.io/instance-type: harvester-vm
+
+  # CP-3: Harvester VM
+  - hostname: cp-3
+    ipAddress: 10.10.30.12
+    controlPlane: true
+    installDiskSelector:
+      size: ">= 100GB"
+    networkInterfaces:
+      - deviceSelector:
+          hardwareAddr: "*"
+        dhcp: false
+        addresses:
+          - 10.10.30.12/24
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 10.10.30.1
+        mtu: 1500
+    nameservers:
+      - 10.10.30.1
+    nodeLabels:
+      topology.kubernetes.io/zone: virtual
+      node.kubernetes.io/instance-type: harvester-vm
+
+# Control plane specific configuration
+controlPlane:
+  patches:
+    # Enable KubePrism for HA endpoint
+    - |-
+      machine:
+        features:
+          kubePrism:
+            enabled: true
+            port: 7445
+    # Disable default CNI to allow Cilium deployment
+    - |-
+      cluster:
+        network:
+          cni:
+            name: none
+        proxy:
+          disabled: true

@@ -11,3 +11,6 @@ ref
 infrastructure/network/vyos/tests/config.boot
 infrastructure/network/vyos/tests/.vyos-test-key
 infrastructure/network/vyos/tests/.vyos-test-key.pub
+
+# Talos generated configs (contain secrets - regenerate with `talhelper genconfig`)
+infrastructure/compute/talos/clusterconfig/
