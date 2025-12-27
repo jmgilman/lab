@@ -1,15 +1,16 @@
 """
-Pytest fixtures for VyOS Gateway integration tests.
+Pytest fixtures for VyOS Gateway functional tests.
 
-This module provides fixtures for connecting to the VyOS gateway container
-running in Containerlab.
+This module provides fixtures for testing the VyOS gateway running in Containerlab.
+Tests validate actual network behavior, not just configuration strings.
 """
 
 import os
+import socket
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable
 
 import pytest
 from scrapli import Scrapli
@@ -17,8 +18,6 @@ from scrapli import Scrapli
 
 def wait_for_vyos_ready(host: str, timeout: int = 240, interval: int = 5) -> bool:
     """Wait for VyOS to be ready for SSH connections."""
-    import socket
-
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -36,41 +35,92 @@ def wait_for_vyos_ready(host: str, timeout: int = 240, interval: int = 5) -> boo
     return False
 
 
+def normalize_output(output: str) -> str:
+    """Normalize VyOS CLI output for stable assertions."""
+    warning_lines = {
+        "WARNING: terminal is not fully functional",
+        "Press RETURN to continue",
+    }
+    filtered = [line for line in output.splitlines() if line.strip() not in warning_lines]
+    return "\n".join(filtered).replace("'", "")
+
+
 @dataclass(frozen=True)
 class TestTopology:
     """Expected values for the Containerlab test topology."""
 
+    # WAN interface
     wan_iface: str = "eth4"
-    wan_ip: str = "192.168.0.2/24"
+    wan_ip: str = "192.168.0.2"
+    wan_cidr: str = "192.168.0.2/24"
     wan_gateway: str = "192.168.0.1"
+    wan_client_ip: str = "192.168.0.100"
+
+    # Trunk interface
     trunk_iface: str = "eth5"
+
+    # VLAN networks (gateway IPs)
     mgmt_vif: str = "10"
-    mgmt_ip: str = "10.10.10.1/24"
+    mgmt_gateway: str = "10.10.10.1"
+    mgmt_client_ip: str = "10.10.10.100"
+
     prov_vif: str = "20"
-    prov_ip: str = "10.10.20.1/24"
+    prov_gateway: str = "10.10.20.1"
+    prov_client_ip: str = "10.10.20.100"
+
     platform_vif: str = "30"
-    platform_ip: str = "10.10.30.1/24"
+    platform_gateway: str = "10.10.30.1"
+    platform_client_ip: str = "10.10.30.100"
+
     cluster_vif: str = "40"
-    cluster_ip: str = "10.10.40.1/24"
+    cluster_gateway: str = "10.10.40.1"
+    cluster_client_ip: str = "10.10.40.100"
+
     service_vif: str = "50"
-    service_ip: str = "10.10.50.1/24"
+    service_gateway: str = "10.10.50.1"
+    service_client_ip: str = "10.10.50.100"
+
     storage_vif: str = "60"
-    storage_ip: str = "10.10.60.1/24"
+    storage_gateway: str = "10.10.60.1"
+    storage_client_ip: str = "10.10.60.100"
+
+    # Network ranges
     home_cidr: str = "192.168.0.0/24"
     lab_cidr: str = "10.10.0.0/16"
+
+    # DHCP configuration
     dhcp_subnet: str = "10.10.10.0/24"
     dhcp_range_start: str = "10.10.10.200"
     dhcp_range_stop: str = "10.10.10.250"
+
+    # DNS configuration
     dns_listen_addresses: tuple[str, ...] = ("10.10.10.1", "10.10.30.1")
+
+    # BGP configuration
     bgp_neighbors: tuple[str, ...] = ("10.10.30.10", "10.10.30.11", "10.10.30.12")
     bgp_remote_as: str = "64513"
     bgp_local_as: str = "64512"
     bgp_router_id: str = "10.10.50.1"
     bgp_service_network: str = "10.10.50.0/24"
+
+    # System configuration
     domain_name: str = "lab.gilman.io"
     hostname: str = "gateway"
     name_servers: tuple[str, ...] = ("1.1.1.1", "8.8.8.8")
-    time_zone: str = "America/Los_Angeles"
+
+    # Container name prefix
+    container_prefix: str = "clab-vyos-gateway-test"
+
+
+# Mapping of client names to their gateway IPs for connectivity tests
+VLAN_CLIENTS = {
+    "mgmt-client": "10.10.10.1",
+    "prov-client": "10.10.20.1",
+    "platform-client": "10.10.30.1",
+    "cluster-client": "10.10.40.1",
+    "service-client": "10.10.50.1",
+    "storage-client": "10.10.60.1",
+}
 
 
 @pytest.fixture(scope="session")
@@ -125,7 +175,6 @@ def vyos(
 
     This fixture uses session scope so the connection is reused across all tests.
     """
-    # Wait for VyOS to be ready
     if not wait_for_vyos_ready(vyos_host):
         pytest.fail(f"VyOS at {vyos_host} not ready after timeout")
 
@@ -150,7 +199,7 @@ def vyos(
 
 @pytest.fixture(scope="session")
 def vyos_show(vyos: Scrapli) -> Callable[[str], str]:
-    """Return a helper to run show commands and return output."""
+    """Return a helper to run VyOS show commands and return normalized output."""
 
     def _show(command: str) -> str:
         result = vyos.send_command(command)
@@ -162,44 +211,99 @@ def vyos_show(vyos: Scrapli) -> Callable[[str], str]:
 
 
 @pytest.fixture(scope="session")
-def config_commands(vyos_container: str) -> str:
-    """Return the rendered config as VyOS set-style commands."""
-    result = subprocess.run(
-        [
-            "docker",
-            "exec",
-            vyos_container,
-            "vyos-config-to-commands",
-            "/opt/vyatta/etc/config/config.boot",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip() or result.stdout.strip()
-        pytest.fail(f"Failed to render config commands via docker exec: {stderr}")
-    return normalize_output(result.stdout)
+def exec_on_client(test_topology: TestTopology) -> Callable[..., subprocess.CompletedProcess]:
+    """
+    Execute a command on a test client container.
+
+    Usage:
+        result = exec_on_client("mgmt-client", ["ping", "-c", "1", "10.10.10.1"])
+        assert result.returncode == 0
+    """
+
+    def _exec(
+        client: str,
+        cmd: list[str],
+        timeout: int = 30,
+    ) -> subprocess.CompletedProcess:
+        container = f"{test_topology.container_prefix}-{client}"
+        return subprocess.run(
+            ["docker", "exec", container, *cmd],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    return _exec
 
 
 @pytest.fixture(scope="session")
-def assert_contains() -> Callable[[str, Iterable[str], str], None]:
-    """Return an assertion helper for checking output content."""
+def ping(exec_on_client: Callable) -> Callable[[str, str, int], bool]:
+    """
+    Ping helper that returns True if ping succeeds.
 
-    def _assert(output: str, items: Iterable[str], context: str = "") -> None:
-        missing = [item for item in items if item not in output]
-        if missing:
-            prefix = f"{context}: " if context else ""
-            raise AssertionError(f"{prefix}missing {', '.join(missing)}")
+    Usage:
+        assert ping("mgmt-client", "10.10.10.1")
+    """
 
-    return _assert
+    def _ping(from_client: str, target: str, count: int = 3) -> bool:
+        result = exec_on_client(from_client, ["ping", "-c", str(count), "-W", "2", target])
+        return result.returncode == 0
+
+    return _ping
 
 
-def normalize_output(output: str) -> str:
-    """Normalize VyOS CLI output for stable assertions."""
-    warning_lines = {
-        "WARNING: terminal is not fully functional",
-        "Press RETURN to continue",
-    }
-    filtered = [line for line in output.splitlines() if line.strip() not in warning_lines]
-    return "\n".join(filtered).replace("'", "")
+@pytest.fixture(scope="session")
+def tcp_connect(exec_on_client: Callable) -> Callable[[str, str, int, int], bool]:
+    """
+    Test TCP connectivity using netcat.
+
+    Returns True if connection succeeds, False otherwise.
+
+    Usage:
+        assert tcp_connect("mgmt-client", "10.10.10.1", 22)  # SSH should work
+        assert not tcp_connect("wan-client", "10.10.10.100", 22)  # Should be blocked
+    """
+
+    def _connect(from_client: str, target: str, port: int, timeout: int = 3) -> bool:
+        result = exec_on_client(
+            from_client,
+            ["nc", "-z", "-w", str(timeout), target, str(port)],
+        )
+        return result.returncode == 0
+
+    return _connect
+
+
+@pytest.fixture(scope="session")
+def dns_resolve(exec_on_client: Callable) -> Callable[[str, str, str], str | None]:
+    """
+    Resolve a DNS name using dig.
+
+    Returns the resolved IP or None if resolution fails.
+
+    Usage:
+        ip = dns_resolve("mgmt-client", "cloudflare.com", "10.10.10.1")
+        assert ip is not None
+    """
+
+    def _resolve(from_client: str, hostname: str, dns_server: str) -> str | None:
+        result = exec_on_client(
+            from_client,
+            ["dig", "+short", f"@{dns_server}", hostname],
+        )
+        if result.returncode != 0:
+            return None
+        # dig returns IPs one per line, take the first valid one
+        for line in result.stdout.strip().split("\n"):
+            line = line.strip()
+            if line and not line.startswith(";"):
+                return line
+        return None
+
+    return _resolve
+
+
+@pytest.fixture(scope="session")
+def vlan_clients() -> dict[str, str]:
+    """Return mapping of VLAN client names to their gateway IPs."""
+    return VLAN_CLIENTS.copy()

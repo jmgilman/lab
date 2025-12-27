@@ -367,6 +367,20 @@ jobs:
           # Check VyOS status
           docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show version || true
 
+      - name: Acquire DHCP lease for test client
+        run: |
+          echo "Triggering DHCP acquisition on dhcp-client..."
+          DHCP_CLIENT="clab-vyos-gateway-test-dhcp-client"
+
+          # Run udhcpc to acquire a lease from the VyOS gateway
+          # -f = foreground, -q = quit after obtaining, -t 10 = 10 retries, -T 3 = 3s timeout
+          docker exec "${DHCP_CLIENT}" udhcpc -i eth1.10 -f -q -t 10 -T 3
+
+          # Verify the lease was acquired
+          echo "DHCP client network configuration:"
+          docker exec "${DHCP_CLIENT}" ip addr show eth1.10
+          docker exec "${DHCP_CLIENT}" ip route show
+
       - name: Run integration tests
         run: |
           cd infrastructure/network/vyos/tests
@@ -375,13 +389,43 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          CONTAINER="clab-vyos-gateway-test-gateway"
-          echo "=== Container logs ==="
-          docker logs "${CONTAINER}" 2>&1 | tail -100 || true
+          GATEWAY="clab-vyos-gateway-test-gateway"
+
+          echo "=== Running containers ==="
+          docker ps --format "table {{.Names}}\t{{.Status}}" | grep vyos-gateway-test || true
+
+          echo ""
+          echo "=== Gateway container logs ==="
+          docker logs "${GATEWAY}" 2>&1 | tail -100 || true
+
+          echo ""
           echo "=== VyOS configuration ==="
-          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration 2>&1 || true
-          echo "=== Interfaces ==="
-          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show interfaces 2>&1 || true
+          docker exec "${GATEWAY}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration 2>&1 || true
+
+          echo ""
+          echo "=== VyOS interfaces ==="
+          docker exec "${GATEWAY}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show interfaces 2>&1 || true
+
+          echo ""
+          echo "=== VyOS routing table ==="
+          docker exec "${GATEWAY}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show ip route 2>&1 || true
+
+          echo ""
+          echo "=== VyOS NAT rules ==="
+          docker exec "${GATEWAY}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show nat source rules 2>&1 || true
+
+          echo ""
+          echo "=== VyOS firewall ==="
+          docker exec "${GATEWAY}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show firewall 2>&1 || true
+
+          echo ""
+          echo "=== DHCP client status ==="
+          docker exec clab-vyos-gateway-test-dhcp-client ip addr show eth1.10 2>&1 || true
+          docker exec clab-vyos-gateway-test-dhcp-client ip route show 2>&1 || true
+
+          echo ""
+          echo "=== mgmt-client connectivity test ==="
+          docker exec clab-vyos-gateway-test-mgmt-client ping -c 1 10.10.10.1 2>&1 || true
 
       - name: Cleanup
         if: always()
