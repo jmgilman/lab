@@ -98,11 +98,12 @@ topology:
     # DHCP test client (VLAN 10 - acquires IP via DHCP)
     # Note: udhcpc is NOT run at startup because VyOS gateway won't be ready yet.
     # The CI workflow triggers DHCP acquisition after VyOS boots.
+    # udhcpc is already included in busybox (no separate package needed)
     dhcp-client:
       kind: linux
       image: alpine:latest
       exec:
-        - apk add --no-cache udhcpc bind-tools
+        - apk add --no-cache bind-tools
         - sh -c "ip link set eth1 up && ip link add link eth1 name eth1.10 type vlan id 10 && ip link set eth1.10 up"
 
   links:

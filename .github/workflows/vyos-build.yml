@@ -157,6 +157,18 @@ jobs:
             sleep 2
           done
 
+          # Debug: List all kea services
+          echo "=== Kea services status ==="
+          docker exec "${CONTAINER}" systemctl list-units --all 'kea*' || true
+
+          # Debug: Check for DHCP server errors
+          echo "=== DHCP server journal ==="
+          docker exec "${CONTAINER}" journalctl -u kea-dhcp4-server --no-pager -n 20 2>/dev/null || true
+
+          # Debug: Check VyOS router journal for errors
+          echo "=== VyOS router journal ==="
+          docker exec "${CONTAINER}" journalctl -u vyos-router --no-pager -n 30 2>/dev/null || true
+
           # Wait for DHCP server to be running (VyOS uses Kea)
           echo "Waiting for DHCP server to start..."
           for i in {1..30}; do
@@ -167,6 +179,10 @@ jobs:
             echo "Waiting for DHCP server... ($i/30)"
             sleep 2
           done
+
+          # Final DHCP server check
+          echo "=== Final DHCP server status ==="
+          docker exec "${CONTAINER}" systemctl status kea-dhcp4-server || true
 
           echo "Verifying configuration loaded..."
           docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands | head -10
