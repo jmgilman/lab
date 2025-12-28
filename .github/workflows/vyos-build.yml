@@ -41,12 +41,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute cache key
+        id: cache-key
+        run: |
+          # Cache key based on ISO checksum and build scripts
+          ISO_CHECKSUM=$(grep -A5 'name: vyos-stream' images/images.yaml | grep 'checksum:' | awk '{print $2}' | cut -d: -f2)
+          SCRIPTS_HASH=$(cat infrastructure/network/vyos/scripts/iso-to-container.sh infrastructure/network/vyos/scripts/Dockerfile.containerlab | sha256sum | cut -d' ' -f1)
+          echo "key=vyos-container-${ISO_CHECKSUM:0:16}-${SCRIPTS_HASH:0:16}" >> $GITHUB_OUTPUT
+
+      - name: Restore cached container image
+        id: cache-container
+        uses: actions/cache@v4
+        with:
+          path: /tmp/vyos-gateway-container.tar
+          key: ${{ steps.cache-key.outputs.key }}
+
       - name: Install dependencies
+        if: steps.cache-container.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y p7zip-full squashfs-tools-ng
 
       - name: Download VyOS ISO
+        if: steps.cache-container.outputs.cache-hit != 'true'
         run: |
           # Extract URL and checksum from images.yaml
           URL=$(grep -A5 'name: vyos-stream' images/images.yaml | grep 'url:' | awk '{print $2}')
@@ -67,12 +84,23 @@ jobs:
           echo "Checksum verified"
 
       - name: Build container image from ISO
+        if: steps.cache-container.outputs.cache-hit != 'true'
         run: |
           infrastructure/network/vyos/scripts/iso-to-container.sh /tmp/vyos.iso vyos-gateway:test
 
       - name: Save container image
+        if: steps.cache-container.outputs.cache-hit != 'true'
         run: |
           docker save vyos-gateway:test -o /tmp/vyos-gateway-container.tar
+          ls -lah /tmp/vyos-gateway-container.tar
+
+      - name: Report cache status
+        run: |
+          if [[ "${{ steps.cache-container.outputs.cache-hit }}" == "true" ]]; then
+            echo "✓ Container image restored from cache"
+          else
+            echo "✓ Container image built and cached for future runs"
+          fi
           ls -lah /tmp/vyos-gateway-container.tar
 
       - name: Upload container image artifact
