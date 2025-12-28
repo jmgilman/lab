@@ -115,7 +115,7 @@ jobs:
             -e VYOS_BUILD_BY="ci@lab.gilman.io" \
             -w /vyos \
             vyos/vyos-build:current \
-            bash -c "sudo ./build-vyos-image --architecture amd64 --build-by ci@lab.gilman.io --build-type release --vyos-mirror https://packages.vyos.net/repositories/current/ --version ${VERSION} gateway"
+            bash -c "sudo apt-get update && sudo ./build-vyos-image --architecture amd64 --build-by ci@lab.gilman.io --build-type release --vyos-mirror https://packages.vyos.net/repositories/current/ --debian-mirror http://deb.debian.org/debian/ --version ${VERSION} gateway"
 
           # Find and move the output image (suppress permission denied errors)
           echo "Looking for .raw image in build output..."
@@ -222,7 +222,7 @@ jobs:
             -e VYOS_BUILD_BY="ci@lab.gilman.io" \
             -w /vyos \
             vyos/vyos-build:current \
-            bash -c "sudo ./build-vyos-image --architecture amd64 --build-by ci@lab.gilman.io --build-type release --vyos-mirror https://packages.vyos.net/repositories/current/ --version ${VERSION} gateway"
+            bash -c "sudo apt-get update && sudo ./build-vyos-image --architecture amd64 --build-by ci@lab.gilman.io --build-type release --vyos-mirror https://packages.vyos.net/repositories/current/ --debian-mirror http://deb.debian.org/debian/ --version ${VERSION} gateway"
 
           echo "Build complete, checking for squashfs..."
           find /tmp/vyos-build -name "*.squashfs" -type f 2>/dev/null || true
