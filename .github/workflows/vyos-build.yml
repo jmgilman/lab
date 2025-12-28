@@ -147,48 +147,30 @@ jobs:
           echo "Waiting for VyOS config to be applied..."
           # VyOS loads config automatically via vyos-router.service
           # The "systemd running" state happens before config is applied
-          # Config migration takes 90-120 seconds in container environments
-          # We must wait for the "migrate system configure" message in journal
+          # Config migration takes ~100 seconds in container environments
+          # The message appears in docker logs (container stdout), not dmesg
           for i in {1..90}; do
-            # Check for config migration completion in kernel log (dmesg)
-            if docker exec "${CONTAINER}" dmesg 2>/dev/null | grep -q "migrate.*configure"; then
-              echo "VyOS config migration detected in dmesg"
+            # Check for config migration completion in container logs
+            if docker logs "${CONTAINER}" 2>&1 | grep -q "migrate.*configure"; then
+              echo "VyOS config migration detected"
               # Wait for services to start
-              sleep 10
+              sleep 15
               break
             fi
             echo "Waiting for VyOS config... ($i/90)"
             sleep 2
           done
 
-          # Debug: List all kea services and unit files
-          echo "=== Kea systemd units ==="
-          docker exec "${CONTAINER}" systemctl list-units --all 'kea*' || true
-          echo "=== Kea unit files ==="
-          docker exec "${CONTAINER}" systemctl list-unit-files 'kea*' || true
-          echo "=== Kea binaries ==="
-          docker exec "${CONTAINER}" ls -la /usr/sbin/kea* 2>/dev/null || echo "No kea binaries in /usr/sbin"
-          docker exec "${CONTAINER}" which kea-dhcp4 2>/dev/null || echo "kea-dhcp4 not in PATH"
-
-          # Debug: Check for DHCP server errors
-          echo "=== DHCP server journal ==="
-          docker exec "${CONTAINER}" journalctl -u kea-dhcp4-server --no-pager -n 20 2>/dev/null || true
-
-          # Debug: Check VyOS router journal for errors
-          echo "=== VyOS router journal ==="
-          docker exec "${CONTAINER}" journalctl -u vyos-router --no-pager -n 50 2>/dev/null || true
-
-          # Debug: Check VyOS DHCP service status
-          echo "=== VyOS DHCP service check ==="
-          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 || true
-
-          # VyOS manages Kea DHCP internally, not via systemd
-          # Check if DHCP server is operational via VyOS command
-          echo "Checking DHCP server status via VyOS..."
-          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 || true
-
           echo "Verifying configuration loaded..."
           docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands | head -10
+
+          # Check if kea-dhcp4 process is running
+          echo "=== DHCP server process check ==="
+          docker exec "${CONTAINER}" pgrep -a kea-dhcp4 || echo "WARNING: kea-dhcp4 process not found"
+
+          # Check DHCP server status
+          echo "=== DHCP server status ==="
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 || true
         timeout-minutes: 5
 
       - name: Verify VyOS interfaces
@@ -209,14 +191,35 @@ jobs:
 
       - name: Acquire DHCP lease for test client
         run: |
+          GATEWAY="clab-vyos-gateway-test-gateway"
           DHCP_CLIENT="clab-vyos-gateway-test-dhcp-client"
+
+          # Install tcpdump on gateway for diagnostics
+          docker exec "${GATEWAY}" apt-get update -qq && docker exec "${GATEWAY}" apt-get install -y -qq tcpdump || true
+
+          # Start tcpdump in background to capture DHCP traffic on eth5
+          echo "Starting DHCP traffic capture on gateway eth5..."
+          docker exec -d "${GATEWAY}" timeout 45 tcpdump -i eth5 -n port 67 or port 68 -w /tmp/dhcp.pcap 2>/dev/null || true
 
           echo "Triggering DHCP acquisition on dhcp-client..."
           # Use timeout to prevent hanging; -n = exit after lease obtained or max retries
           timeout 60 docker exec "${DHCP_CLIENT}" udhcpc -i eth1.10 -n -t 10 -T 3 || {
             echo "DHCP acquisition failed or timed out"
-            echo "Checking interface state:"
+
+            echo "=== DHCP client interface state ==="
             docker exec "${DHCP_CLIENT}" ip addr show eth1.10
+
+            echo "=== Gateway DHCP traffic capture ==="
+            # Stop capture and read results
+            sleep 2
+            docker exec "${GATEWAY}" tcpdump -r /tmp/dhcp.pcap -n 2>/dev/null || echo "No DHCP traffic captured on gateway"
+
+            echo "=== Kea DHCP4 process status ==="
+            docker exec "${GATEWAY}" pgrep -a kea-dhcp4 || echo "kea-dhcp4 NOT running!"
+
+            echo "=== Kea DHCP4 config ==="
+            docker exec "${GATEWAY}" cat /run/kea/kea-dhcp4.conf 2>/dev/null | head -50 || echo "No Kea config found"
+
             exit 1
           }
 
