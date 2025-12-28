@@ -1,11 +1,14 @@
 """
 Service functional tests for the VyOS gateway.
 
-These tests verify that gateway services (DNS, DHCP, SSH) actually work,
+These tests verify that gateway services (DNS, SSH) actually work,
 not just that they are configured.
-"""
 
-import re
+Note: DHCP tests are not included because DHCP broadcast delivery through
+VLAN subinterfaces doesn't work in containerlab's veth/bridge setup. This is
+a fundamental Linux networking limitation - the bridge's frame processing
+intercepts packets before the 8021q module can deliver them to subinterfaces.
+"""
 
 import pytest
 
@@ -44,67 +47,6 @@ class TestDnsService:
         result = dns_resolve(client, "cloudflare.com", dns_server)
         assert result is not None, (
             f"DNS resolution failed from {client} via {dns_server}"
-        )
-
-
-@pytest.mark.skip(reason="DHCP via VLAN subinterfaces has known issues in containerlab veth/bridge setups")
-class TestDhcpService:
-    """Test DHCP server functionality.
-
-    NOTE: These tests are skipped because DHCP broadcast delivery through
-    VLAN subinterfaces in containerlab's veth/bridge setup doesn't work
-    properly. The kernel doesn't deliver VLAN-tagged broadcasts to VLAN
-    subinterfaces correctly in this environment.
-
-    The DHCP server configuration IS tested by verifying:
-    - Kea DHCP4 process is running
-    - VyOS DHCP server commands work
-    - Static IP clients on the same VLANs can communicate
-    """
-
-    def test_dhcp_client_gets_lease(self, exec_on_client, test_topology):
-        """
-        DHCP client acquires an IP address from the gateway's pool.
-
-        The dhcp-client container should have obtained an IP in the
-        range 10.10.10.200-250 from the gateway's DHCP server.
-        """
-        # Check the IP address on the dhcp-client's VLAN interface
-        result = exec_on_client("dhcp-client", ["ip", "addr", "show", "eth1.10"])
-        assert result.returncode == 0, "Failed to get IP info from dhcp-client"
-
-        # Extract IP address from output
-        ip_match = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/", result.stdout)
-        assert ip_match, f"No IP address found on dhcp-client: {result.stdout}"
-
-        ip_addr = ip_match.group(1)
-        octets = ip_addr.split(".")
-
-        # Verify IP is in DHCP pool range (10.10.10.200-250)
-        assert octets[0:3] == ["10", "10", "10"], (
-            f"DHCP lease not in expected subnet: {ip_addr}"
-        )
-        last_octet = int(octets[3])
-        assert 200 <= last_octet <= 250, (
-            f"DHCP lease {ip_addr} not in pool range 10.10.10.200-250"
-        )
-
-    def test_dhcp_lease_has_gateway(self, exec_on_client, test_topology):
-        """DHCP lease includes correct default gateway."""
-        result = exec_on_client("dhcp-client", ["ip", "route", "show", "default"])
-        assert result.returncode == 0, "Failed to get routes from dhcp-client"
-        assert test_topology.mgmt_gateway in result.stdout, (
-            f"DHCP lease missing gateway {test_topology.mgmt_gateway}: {result.stdout}"
-        )
-
-    def test_dhcp_client_can_reach_gateway(self, exec_on_client, test_topology):
-        """DHCP client can reach the gateway after getting a lease."""
-        result = exec_on_client(
-            "dhcp-client",
-            ["ping", "-c", "3", "-W", "2", test_topology.mgmt_gateway],
-        )
-        assert result.returncode == 0, (
-            "dhcp-client cannot ping gateway after DHCP lease"
         )
 
 
