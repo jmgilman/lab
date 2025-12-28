@@ -29,7 +29,7 @@ class TestWanToLabFirewall:
         """
         # This tests that HOME_NETWORK rule actually works
         # We can't easily test "non-home" traffic without another WAN client
-        assert ping_result := tcp_connect(
+        assert tcp_connect(
             "wan-client", test_topology.mgmt_gateway, 22
         ), "wan-client should reach gateway SSH (HOME_NETWORK allowed)"
 
