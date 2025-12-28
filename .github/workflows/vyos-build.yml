@@ -147,27 +147,28 @@ jobs:
           echo "Waiting for VyOS config to be applied..."
           # VyOS loads config automatically via vyos-router.service
           # The "systemd running" state happens before config is applied
-          # We must wait for the actual VyOS configuration to complete
+          # Config migration takes 90-120 seconds in container environments
+          # We must wait for the "migrate system configure" message in journal
           for i in {1..90}; do
-            # Check if VyOS has finished applying config by checking if DHCP is configured
-            if docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 | grep -q "Pool\|no leases"; then
-              echo "VyOS configuration has been applied"
-              break
-            fi
-            # Also check journalctl for config completion message
-            if docker exec "${CONTAINER}" journalctl -u vyos-router --no-pager 2>/dev/null | grep -q "migrate.*configure\|Finished"; then
-              echo "VyOS config migration detected"
-              # Wait a bit more for services to start
-              sleep 5
+            # Check for config migration completion in kernel log (dmesg)
+            if docker exec "${CONTAINER}" dmesg 2>/dev/null | grep -q "migrate.*configure"; then
+              echo "VyOS config migration detected in dmesg"
+              # Wait for services to start
+              sleep 10
               break
             fi
             echo "Waiting for VyOS config... ($i/90)"
             sleep 2
           done
 
-          # Debug: List all kea services
-          echo "=== Kea services status ==="
+          # Debug: List all kea services and unit files
+          echo "=== Kea systemd units ==="
           docker exec "${CONTAINER}" systemctl list-units --all 'kea*' || true
+          echo "=== Kea unit files ==="
+          docker exec "${CONTAINER}" systemctl list-unit-files 'kea*' || true
+          echo "=== Kea binaries ==="
+          docker exec "${CONTAINER}" ls -la /usr/sbin/kea* 2>/dev/null || echo "No kea binaries in /usr/sbin"
+          docker exec "${CONTAINER}" which kea-dhcp4 2>/dev/null || echo "kea-dhcp4 not in PATH"
 
           # Debug: Check for DHCP server errors
           echo "=== DHCP server journal ==="
@@ -176,6 +177,10 @@ jobs:
           # Debug: Check VyOS router journal for errors
           echo "=== VyOS router journal ==="
           docker exec "${CONTAINER}" journalctl -u vyos-router --no-pager -n 50 2>/dev/null || true
+
+          # Debug: Check VyOS DHCP service status
+          echo "=== VyOS DHCP service check ==="
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 || true
 
           # Wait for DHCP server to be running (VyOS uses Kea)
           echo "Waiting for DHCP server to start..."
