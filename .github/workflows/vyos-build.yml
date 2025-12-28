@@ -141,8 +141,15 @@ jobs:
             sleep 2
           done
 
-          echo "Loading kernel modules..."
+          echo "Loading kernel modules on host..."
+          sudo modprobe 8021q || true
+
+          echo "Loading kernel modules in container..."
           sudo docker exec "${CONTAINER}" modprobe br_netfilter || true
+          sudo docker exec "${CONTAINER}" modprobe 8021q || true
+
+          echo "Checking if 8021q is loaded..."
+          lsmod | grep 8021q || echo "WARNING: 8021q not loaded on host"
 
           echo "Waiting for VyOS config to be applied..."
           # VyOS loads config automatically via vyos-router.service
@@ -208,13 +215,21 @@ jobs:
           echo "=== Gateway VLAN interfaces ==="
           docker exec "${GATEWAY}" ip addr show eth5.10 || echo "eth5.10 NOT found!"
 
+          # Check eth5 VLAN configuration
+          echo "=== eth5 VLAN info ==="
+          docker exec "${GATEWAY}" cat /proc/net/vlan/config 2>/dev/null || echo "VLAN config not available"
+
           # Start tcpdump in background to capture on eth5.10 (VLAN subinterface)
           echo "Starting traffic capture on gateway eth5.10..."
-          docker exec -d "${GATEWAY}" timeout 45 tcpdump -i eth5.10 -n -e -w /tmp/eth5.10.pcap 2>/dev/null || true
+          docker exec -d "${GATEWAY}" sh -c "timeout 45 tcpdump -i eth5.10 -n -e -w /tmp/eth5.10.pcap 2>&1" || true
 
           # Also capture on eth5 for raw traffic
           echo "Starting traffic capture on gateway eth5..."
-          docker exec -d "${GATEWAY}" timeout 45 tcpdump -i eth5 -n -e -w /tmp/eth5.pcap 2>/dev/null || true
+          docker exec -d "${GATEWAY}" sh -c "timeout 45 tcpdump -i eth5 -n -e -w /tmp/eth5.pcap 2>&1" || true
+
+          sleep 2
+          echo "=== Verify tcpdump processes running ==="
+          docker exec "${GATEWAY}" pgrep -a tcpdump || echo "No tcpdump running!"
 
           # Also capture on dhcp-client to verify packets are leaving
           echo "Starting traffic capture on dhcp-client eth1..."
@@ -241,8 +256,11 @@ jobs:
             echo "=== Gateway eth5.10 packet capture (VLAN subinterface) ==="
             docker exec "${GATEWAY}" tcpdump -r /tmp/eth5.10.pcap -n -e 2>/dev/null | head -20 || echo "No packets captured on eth5.10"
 
-            echo "=== Check if mgmt-client can reach gateway (VLAN 10 works?) ==="
-            docker exec clab-vyos-gateway-test-mgmt-client ping -c 1 -W 2 10.10.10.1 || echo "VLAN 10 connectivity FAILED"
+            echo "=== Check if mgmt-client can reach gateway (VLAN 10 unicast) ==="
+            docker exec clab-vyos-gateway-test-mgmt-client ping -c 1 -W 2 10.10.10.1 || echo "VLAN 10 unicast FAILED"
+
+            echo "=== Test broadcast ping on VLAN 10 ==="
+            docker exec clab-vyos-gateway-test-mgmt-client ping -c 1 -W 2 -b 10.10.10.255 2>&1 || echo "VLAN 10 broadcast ping failed (expected on some systems)"
 
             echo "=== Kea DHCP4 process status ==="
             docker exec "${GATEWAY}" pgrep -a kea-dhcp4 || echo "kea-dhcp4 NOT running!"
