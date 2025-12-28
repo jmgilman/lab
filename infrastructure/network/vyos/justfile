@@ -1,36 +1,36 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-SQUASHFS := "build/live/filesystem.squashfs"
-ROOTFS := "rootfs.tar"
 IMAGE := "vyos-gateway:test"
 TOPO := "tests/topology.clab.yml"
 KEY := "tests/.vyos-test-key"
 
+# Generate SSH key for testing
 key:
     test -f "{{KEY}}" || ssh-keygen -t ed25519 -f "{{KEY}}" -N "" -C "vyos-ci"
 
+# Render test config.boot from gateway.toml template
 config: key
     tests/render-config-boot.sh "$(cat {{KEY}}.pub)"
 
-rootfs:
-    test -f "{{SQUASHFS}}"
-    sqfs2tar "{{SQUASHFS}}" > "{{ROOTFS}}"
+# Build container image from VyOS ISO
+container ISO:
+    scripts/iso-to-container.sh "{{ISO}}" "{{IMAGE}}"
 
-image: rootfs
-    docker build -t "{{IMAGE}}" -f Dockerfile.containerlab .
-
+# Deploy the Containerlab topology
 deploy: config
     sudo containerlab deploy -t "{{TOPO}}"
 
+# Destroy the Containerlab topology
 destroy:
     sudo containerlab destroy -t "{{TOPO}}" --cleanup
 
+# Run pytest tests
 pytest:
     pytest -v tests
 
-test:
-    just deploy
-    just pytest
+# Full test cycle (requires container image to be built first)
+test: deploy pytest
 
+# Clean up test artifacts
 clean:
-    rm -f "{{ROOTFS}}"
+    rm -f tests/config.boot tests/.vyos-test-key tests/.vyos-test-key.pub

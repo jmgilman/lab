@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/.."
-TEMPLATE_FILE="${REPO_ROOT}/vyos-build/build-flavors/gateway.toml"
+TEMPLATE_FILE="${REPO_ROOT}/templates/gateway.toml"
 OUTPUT_FILE="${SCRIPT_DIR}/config.boot"
 
 usage() {
