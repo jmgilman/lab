@@ -157,8 +157,16 @@ jobs:
             sleep 2
           done
 
-          # Extra settle time for services
-          sleep 5
+          # Wait for DHCP server to be running (VyOS uses Kea)
+          echo "Waiting for DHCP server to start..."
+          for i in {1..30}; do
+            if docker exec "${CONTAINER}" systemctl is-active kea-dhcp4-server >/dev/null 2>&1; then
+              echo "DHCP server is running"
+              break
+            fi
+            echo "Waiting for DHCP server... ($i/30)"
+            sleep 2
+          done
 
           echo "Verifying configuration loaded..."
           docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands | head -10
