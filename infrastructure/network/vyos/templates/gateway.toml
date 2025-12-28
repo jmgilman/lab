@@ -60,10 +60,8 @@ firewall {
             rule 10 {
                 action accept
                 description "Allow established/related"
-                state {
-                    established
-                    related
-                }
+                state established
+                state related
             }
             rule 20 {
                 action drop
@@ -73,19 +71,15 @@ firewall {
                         network-group HOME_NETWORK
                     }
                 }
-                state {
-                    new
-                }
+                state new
             }
         }
         name LOCAL {
             default-action drop
             rule 10 {
                 action accept
-                state {
-                    established
-                    related
-                }
+                state established
+                state related
             }
             rule 20 {
                 action accept
@@ -163,10 +157,8 @@ firewall {
             rule 10 {
                 action accept
                 description "Allow established/related"
-                state {
-                    established
-                    related
-                }
+                state established
+                state related
             }
             rule 20 {
                 action accept
