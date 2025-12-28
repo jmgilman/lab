@@ -22,7 +22,7 @@ topology:
       # Run with systemd and extra capabilities for VyOS functionality
       cmd: /sbin/init
       binds:
-        - config.boot:/opt/vyatta/etc/config/config.boot:ro,Z
+        - config.boot:/opt/vyatta/etc/config/config.boot:rw,Z
         - /lib/modules:/lib/modules:ro
       cap-add:
         - NET_ADMIN
