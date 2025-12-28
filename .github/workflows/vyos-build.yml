@@ -193,13 +193,26 @@ jobs:
         run: |
           GATEWAY="clab-vyos-gateway-test-gateway"
           DHCP_CLIENT="clab-vyos-gateway-test-dhcp-client"
+          TRUNK="clab-vyos-gateway-test-trunk-switch"
 
-          # Install tcpdump on gateway for diagnostics
+          # Install tcpdump on gateway and client for diagnostics
           docker exec "${GATEWAY}" apt-get update -qq && docker exec "${GATEWAY}" apt-get install -y -qq tcpdump || true
+          docker exec "${DHCP_CLIENT}" apk add --no-cache tcpdump || true
 
-          # Start tcpdump in background to capture DHCP traffic on eth5
-          echo "Starting DHCP traffic capture on gateway eth5..."
-          docker exec -d "${GATEWAY}" timeout 45 tcpdump -i eth5 -n port 67 or port 68 -w /tmp/dhcp.pcap 2>/dev/null || true
+          # Debug: Show trunk-switch bridge state
+          echo "=== Trunk switch bridge state ==="
+          docker exec "${TRUNK}" ip link show br0 || true
+          docker exec "${TRUNK}" bridge link show || true
+
+          # Start tcpdump in background to capture ALL VLAN traffic on gateway eth5
+          echo "Starting traffic capture on gateway eth5..."
+          docker exec -d "${GATEWAY}" timeout 45 tcpdump -i eth5 -n -e -w /tmp/eth5.pcap 2>/dev/null || true
+
+          # Also capture on dhcp-client to verify packets are leaving
+          echo "Starting traffic capture on dhcp-client eth1..."
+          docker exec -d "${DHCP_CLIENT}" timeout 45 tcpdump -i eth1 -n -e -w /tmp/client.pcap 2>/dev/null || true
+
+          sleep 1
 
           echo "Triggering DHCP acquisition on dhcp-client..."
           # Use timeout to prevent hanging; -n = exit after lease obtained or max retries
@@ -208,17 +221,20 @@ jobs:
 
             echo "=== DHCP client interface state ==="
             docker exec "${DHCP_CLIENT}" ip addr show eth1.10
+            docker exec "${DHCP_CLIENT}" ip addr show eth1
 
-            echo "=== Gateway DHCP traffic capture ==="
-            # Stop capture and read results
+            echo "=== Client-side packet capture (eth1) ==="
             sleep 2
-            docker exec "${GATEWAY}" tcpdump -r /tmp/dhcp.pcap -n 2>/dev/null || echo "No DHCP traffic captured on gateway"
+            docker exec "${DHCP_CLIENT}" tcpdump -r /tmp/client.pcap -n -e 2>/dev/null | head -30 || echo "No packets captured on client"
+
+            echo "=== Gateway-side packet capture (eth5) ==="
+            docker exec "${GATEWAY}" tcpdump -r /tmp/eth5.pcap -n -e 2>/dev/null | head -30 || echo "No packets captured on gateway"
+
+            echo "=== Check if mgmt-client can reach gateway (VLAN 10 works?) ==="
+            docker exec clab-vyos-gateway-test-mgmt-client ping -c 1 -W 2 10.10.10.1 || echo "VLAN 10 connectivity FAILED"
 
             echo "=== Kea DHCP4 process status ==="
             docker exec "${GATEWAY}" pgrep -a kea-dhcp4 || echo "kea-dhcp4 NOT running!"
-
-            echo "=== Kea DHCP4 config ==="
-            docker exec "${GATEWAY}" cat /run/kea/kea-dhcp4.conf 2>/dev/null | head -50 || echo "No Kea config found"
 
             exit 1
           }
