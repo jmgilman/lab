@@ -287,6 +287,8 @@ jobs:
         timeout-minutes: 2
 
       - name: Run integration tests
+        env:
+          VYOS_SSH_KEY: /tmp/vyos-test-key
         run: |
           cd infrastructure/network/vyos/tests
           pytest -v --tb=short -x
