@@ -127,7 +127,7 @@ jobs:
           sudo containerlab deploy -t topology.clab.yml --reconfigure
         timeout-minutes: 5
 
-      - name: Wait for VyOS systemd
+      - name: Wait for VyOS to be ready
         run: |
           CONTAINER="clab-vyos-gateway-test-gateway"
 
@@ -141,33 +141,27 @@ jobs:
             sleep 2
           done
 
-          echo "Waiting for systemd to be ready..."
-          for i in {1..30}; do
-            STATE=$(docker exec "${CONTAINER}" systemctl is-system-running 2>/dev/null || echo "not-ready")
-            echo "Systemd state: ${STATE}"
-            if [[ "${STATE}" == "running" || "${STATE}" == "degraded" ]]; then
-              echo "Systemd is ready (${STATE})"
-              break
-            fi
-            sleep 2
-          done
-        timeout-minutes: 3
-
-      - name: Load VyOS configuration
-        run: |
-          CONTAINER="clab-vyos-gateway-test-gateway"
-
           echo "Loading kernel modules..."
           sudo docker exec "${CONTAINER}" modprobe br_netfilter || true
 
-          echo "Loading VyOS configuration..."
-          sudo docker exec "${CONTAINER}" python3 /usr/libexec/vyos/vyos-boot-config-loader.py /opt/vyatta/etc/config/config.boot
+          echo "Waiting for VyOS to fully boot..."
+          # VyOS loads config automatically via vyos-router.service
+          # Wait for systemd to reach running/degraded state
+          for i in {1..60}; do
+            STATE=$(docker exec "${CONTAINER}" systemctl is-system-running 2>/dev/null || echo "not-ready")
+            if [[ "${STATE}" == "running" || "${STATE}" == "degraded" ]]; then
+              echo "VyOS is ready (systemd: ${STATE})"
+              break
+            fi
+            echo "Waiting for VyOS... ($i/60) - systemd: ${STATE}"
+            sleep 2
+          done
 
-          echo "Waiting for services to start..."
-          sleep 10
+          # Extra settle time for services
+          sleep 5
 
           echo "Verifying configuration loaded..."
-          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands | head -20
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands | head -10
         timeout-minutes: 3
 
       - name: Verify VyOS interfaces
