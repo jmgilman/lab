@@ -144,16 +144,24 @@ jobs:
           echo "Loading kernel modules..."
           sudo docker exec "${CONTAINER}" modprobe br_netfilter || true
 
-          echo "Waiting for VyOS to fully boot..."
+          echo "Waiting for VyOS config to be applied..."
           # VyOS loads config automatically via vyos-router.service
-          # Wait for systemd to reach running/degraded state
-          for i in {1..60}; do
-            STATE=$(docker exec "${CONTAINER}" systemctl is-system-running 2>/dev/null || echo "not-ready")
-            if [[ "${STATE}" == "running" || "${STATE}" == "degraded" ]]; then
-              echo "VyOS is ready (systemd: ${STATE})"
+          # The "systemd running" state happens before config is applied
+          # We must wait for the actual VyOS configuration to complete
+          for i in {1..90}; do
+            # Check if VyOS has finished applying config by checking if DHCP is configured
+            if docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 | grep -q "Pool\|no leases"; then
+              echo "VyOS configuration has been applied"
               break
             fi
-            echo "Waiting for VyOS... ($i/60) - systemd: ${STATE}"
+            # Also check journalctl for config completion message
+            if docker exec "${CONTAINER}" journalctl -u vyos-router --no-pager 2>/dev/null | grep -q "migrate.*configure\|Finished"; then
+              echo "VyOS config migration detected"
+              # Wait a bit more for services to start
+              sleep 5
+              break
+            fi
+            echo "Waiting for VyOS config... ($i/90)"
             sleep 2
           done
 
@@ -167,7 +175,7 @@ jobs:
 
           # Debug: Check VyOS router journal for errors
           echo "=== VyOS router journal ==="
-          docker exec "${CONTAINER}" journalctl -u vyos-router --no-pager -n 30 2>/dev/null || true
+          docker exec "${CONTAINER}" journalctl -u vyos-router --no-pager -n 50 2>/dev/null || true
 
           # Wait for DHCP server to be running (VyOS uses Kea)
           echo "Waiting for DHCP server to start..."
