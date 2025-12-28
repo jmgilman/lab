@@ -95,8 +95,11 @@ jobs:
 
       - name: Clone vyos-build
         run: |
-          git clone -b current --single-branch --depth 1 \
+          # Pin to known working commit (Dec 19, 2025) to avoid upstream package issues
+          git clone --depth 100 -b current \
             https://github.com/vyos/vyos-build.git /tmp/vyos-build
+          cd /tmp/vyos-build
+          git checkout 3d67842c4562fb2b2694416c1d4671fb83da08e1
 
       - name: Generate build flavor
         run: |
@@ -202,8 +205,11 @@ jobs:
 
       - name: Clone vyos-build
         run: |
-          git clone -b current --single-branch --depth 1 \
+          # Pin to known working commit (Dec 19, 2025) to avoid upstream package issues
+          git clone --depth 100 -b current \
             https://github.com/vyos/vyos-build.git /tmp/vyos-build
+          cd /tmp/vyos-build
+          git checkout 3d67842c4562fb2b2694416c1d4671fb83da08e1
 
       - name: Generate build flavor
         run: |
