@@ -85,6 +85,7 @@ jobs:
   integration-test:
     needs: build-container
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -124,63 +125,90 @@ jobs:
         run: |
           cd infrastructure/network/vyos/tests
           sudo containerlab deploy -t topology.clab.yml --reconfigure
-        timeout-minutes: 10
+        timeout-minutes: 5
 
-      - name: Initialize VyOS config
+      - name: Wait for VyOS systemd
         run: |
           CONTAINER="clab-vyos-gateway-test-gateway"
-          sudo docker exec "${CONTAINER}" sh -c "modprobe br_netfilter || true"
-          sudo docker exec "${CONTAINER}" sh -c "timeout 60 python3 /usr/libexec/vyos/vyos-boot-config-loader.py /opt/vyatta/etc/config/config.boot || true"
 
-      - name: Wait for VyOS boot
-        run: |
-          echo "Waiting for VyOS to boot..."
-          CONTAINER="clab-vyos-gateway-test-gateway"
-
-          # Wait for container to be running
+          echo "Waiting for container to be running..."
           for i in {1..30}; do
             if docker ps --filter "name=${CONTAINER}" --filter "status=running" | grep -q "${CONTAINER}"; then
               echo "Container is running"
               break
             fi
             echo "Waiting for container... ($i/30)"
-            sleep 3
+            sleep 2
           done
 
-          # Wait for systemd to be ready
-          for i in {1..60}; do
-            if docker exec "${CONTAINER}" systemctl is-system-running --quiet 2>/dev/null; then
-              echo "VyOS systemd is running"
+          echo "Waiting for systemd to be ready..."
+          for i in {1..30}; do
+            STATE=$(docker exec "${CONTAINER}" systemctl is-system-running 2>/dev/null || echo "not-ready")
+            echo "Systemd state: ${STATE}"
+            if [[ "${STATE}" == "running" || "${STATE}" == "degraded" ]]; then
+              echo "Systemd is ready (${STATE})"
               break
             fi
-            echo "Waiting for systemd... ($i/60)"
-            sleep 5
+            sleep 2
           done
+        timeout-minutes: 3
 
-          # Additional settle time for all services
-          echo "Waiting for services to stabilize..."
-          sleep 30
+      - name: Load VyOS configuration
+        run: |
+          CONTAINER="clab-vyos-gateway-test-gateway"
 
-          # Check VyOS status
-          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show version || true
+          echo "Loading kernel modules..."
+          sudo docker exec "${CONTAINER}" modprobe br_netfilter || true
+
+          echo "Loading VyOS configuration..."
+          sudo docker exec "${CONTAINER}" python3 /usr/libexec/vyos/vyos-boot-config-loader.py /opt/vyatta/etc/config/config.boot
+
+          echo "Waiting for services to start..."
+          sleep 10
+
+          echo "Verifying configuration loaded..."
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands | head -20
+        timeout-minutes: 3
+
+      - name: Verify VyOS interfaces
+        run: |
+          CONTAINER="clab-vyos-gateway-test-gateway"
+
+          echo "=== VyOS Version ==="
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show version
+
+          echo ""
+          echo "=== Configured Interfaces ==="
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show interfaces
+
+          echo ""
+          echo "=== DHCP Server Status ==="
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases || echo "No leases yet"
+        timeout-minutes: 2
 
       - name: Acquire DHCP lease for test client
         run: |
-          echo "Triggering DHCP acquisition on dhcp-client..."
           DHCP_CLIENT="clab-vyos-gateway-test-dhcp-client"
 
-          # Run udhcpc to acquire a lease from the VyOS gateway
-          docker exec "${DHCP_CLIENT}" udhcpc -i eth1.10 -f -q -t 10 -T 3
+          echo "Triggering DHCP acquisition on dhcp-client..."
+          # Use timeout to prevent hanging; -n = exit after lease obtained or max retries
+          timeout 60 docker exec "${DHCP_CLIENT}" udhcpc -i eth1.10 -n -t 10 -T 3 || {
+            echo "DHCP acquisition failed or timed out"
+            echo "Checking interface state:"
+            docker exec "${DHCP_CLIENT}" ip addr show eth1.10
+            exit 1
+          }
 
-          # Verify the lease was acquired
           echo "DHCP client network configuration:"
           docker exec "${DHCP_CLIENT}" ip addr show eth1.10
           docker exec "${DHCP_CLIENT}" ip route show
+        timeout-minutes: 2
 
       - name: Run integration tests
         run: |
           cd infrastructure/network/vyos/tests
           pytest -v --tb=short -x
+        timeout-minutes: 5
 
       - name: Collect logs on failure
         if: failure()
