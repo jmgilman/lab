@@ -74,6 +74,16 @@ func (i *Image) EffectiveChecksum() string {
 	return i.Source.Checksum
 }
 
+// FindImageByName returns the image with the given name, or nil if not found.
+func (m *ImageManifest) FindImageByName(name string) *Image {
+	for i := range m.Spec.Images {
+		if m.Spec.Images[i].Name == name {
+			return &m.Spec.Images[i]
+		}
+	}
+	return nil
+}
+
 // LoadManifest reads and parses an image manifest from a file.
 func LoadManifest(path string) (*ImageManifest, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // G304: Path is provided by user

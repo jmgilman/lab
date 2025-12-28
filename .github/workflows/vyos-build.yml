@@ -41,6 +41,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/labctl/go.mod
+          cache-dependency-path: tools/labctl/go.sum
+
+      - name: Build labctl
+        run: |
+          cd tools/labctl
+          go build -o labctl .
+
       - name: Compute cache key
         id: cache-key
         run: |
@@ -65,23 +76,10 @@ jobs:
       - name: Download VyOS ISO
         if: steps.cache-container.outputs.cache-hit != 'true'
         run: |
-          # Extract URL and checksum from images.yaml
-          URL=$(grep -A5 'name: vyos-stream' images/images.yaml | grep 'url:' | awk '{print $2}')
-          EXPECTED=$(grep -A5 'name: vyos-stream' images/images.yaml | grep 'checksum:' | awk '{print $2}' | cut -d: -f2)
-
-          echo "Downloading VyOS ISO from: ${URL}"
-          curl -L -o /tmp/vyos.iso "${URL}"
-
-          echo "Verifying checksum..."
-          ACTUAL=$(sha256sum /tmp/vyos.iso | awk '{print $1}')
-
-          if [[ "${EXPECTED}" != "${ACTUAL}" ]]; then
-            echo "ERROR: Checksum mismatch"
-            echo "Expected: ${EXPECTED}"
-            echo "Actual: ${ACTUAL}"
-            exit 1
-          fi
-          echo "Checksum verified"
+          tools/labctl/labctl images download \
+            --name vyos-stream \
+            --manifest images/images.yaml \
+            --output /tmp/vyos.iso
 
       - name: Build container image from ISO
         if: steps.cache-container.outputs.cache-hit != 'true'

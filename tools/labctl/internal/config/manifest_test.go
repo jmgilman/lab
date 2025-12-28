@@ -360,3 +360,44 @@ func TestImage_EffectiveChecksum(t *testing.T) {
 		})
 	}
 }
+
+func TestImageManifest_FindImageByName(t *testing.T) {
+	t.Run("finds existing image", func(t *testing.T) {
+		manifest := &ImageManifest{
+			Spec: Spec{
+				Images: []Image{
+					{Name: "image-one", Destination: "path/one"},
+					{Name: "image-two", Destination: "path/two"},
+				},
+			},
+		}
+
+		img := manifest.FindImageByName("image-two")
+
+		require.NotNil(t, img)
+		assert.Equal(t, "image-two", img.Name)
+		assert.Equal(t, "path/two", img.Destination)
+	})
+
+	t.Run("returns nil for non-existent image", func(t *testing.T) {
+		manifest := &ImageManifest{
+			Spec: Spec{
+				Images: []Image{
+					{Name: "image-one", Destination: "path/one"},
+				},
+			},
+		}
+
+		img := manifest.FindImageByName("non-existent")
+
+		assert.Nil(t, img)
+	})
+
+	t.Run("returns nil for empty manifest", func(t *testing.T) {
+		manifest := &ImageManifest{}
+
+		img := manifest.FindImageByName("any")
+
+		assert.Nil(t, img)
+	})
+}
