@@ -68,6 +68,7 @@ topology:
       kind: linux
       image: alpine:latest
       exec:
+        - apk add --no-cache bind-tools
         - sh -c "ip link set eth1 up && ip link add link eth1 name eth1.30 type vlan id 30 && ip addr add 10.10.30.100/24 dev eth1.30 && ip link set eth1.30 up"
         - ip route replace default via 10.10.30.1
 
