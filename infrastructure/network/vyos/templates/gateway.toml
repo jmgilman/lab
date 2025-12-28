@@ -283,6 +283,7 @@ service {
     }
     dhcp-server {
         shared-network-name LAB_MGMT {
+            interface eth5.10
             subnet 10.10.10.0/24 {
                 lease 86400
                 option {
