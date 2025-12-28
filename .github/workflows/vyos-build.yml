@@ -182,24 +182,14 @@ jobs:
           echo "=== VyOS DHCP service check ==="
           docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 || true
 
-          # Wait for DHCP server to be running (VyOS uses Kea)
-          echo "Waiting for DHCP server to start..."
-          for i in {1..30}; do
-            if docker exec "${CONTAINER}" systemctl is-active kea-dhcp4-server >/dev/null 2>&1; then
-              echo "DHCP server is running"
-              break
-            fi
-            echo "Waiting for DHCP server... ($i/30)"
-            sleep 2
-          done
-
-          # Final DHCP server check
-          echo "=== Final DHCP server status ==="
-          docker exec "${CONTAINER}" systemctl status kea-dhcp4-server || true
+          # VyOS manages Kea DHCP internally, not via systemd
+          # Check if DHCP server is operational via VyOS command
+          echo "Checking DHCP server status via VyOS..."
+          docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show dhcp server leases 2>&1 || true
 
           echo "Verifying configuration loaded..."
           docker exec "${CONTAINER}" /opt/vyatta/bin/vyatta-op-cmd-wrapper show configuration commands | head -10
-        timeout-minutes: 3
+        timeout-minutes: 5
 
       - name: Verify VyOS interfaces
         run: |
