@@ -47,6 +47,11 @@ type Hooks struct {
 	// PreUpload runs after download/verification, before upload.
 	// Hook must exit 0 for upload to proceed.
 	PreUpload []Hook `yaml:"preUpload,omitempty"`
+	// Transform runs after download/verification, before upload.
+	// The hook receives a copy of the file and can modify it in-place.
+	// The modified file becomes the upload source.
+	// Transform hooks run before preUpload hooks.
+	Transform []Hook `yaml:"transform,omitempty"`
 }
 
 // Hook defines a hook to run during image processing.
@@ -272,6 +277,11 @@ func (i *Image) ValidateAll() []error {
 		for j, h := range i.Hooks.PreUpload {
 			for _, err := range h.ValidateAll() {
 				errs = append(errs, fmt.Errorf("hooks.preUpload[%d]: %w", j, err))
+			}
+		}
+		for j, h := range i.Hooks.Transform {
+			for _, err := range h.ValidateAll() {
+				errs = append(errs, fmt.Errorf("hooks.transform[%d]: %w", j, err))
 			}
 		}
 	}

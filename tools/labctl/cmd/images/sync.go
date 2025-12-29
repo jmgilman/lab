@@ -298,6 +298,33 @@ func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTP
 		uploadSize = size
 	}
 
+	// Run transform hooks (before pre-upload hooks)
+	if hookExecutor != nil && img.Hooks != nil && len(img.Hooks.Transform) > 0 {
+		fmt.Printf("  Running transform hooks...\n")
+		result, err := hookExecutor.RunTransformHooks(ctx, img, uploadFile.Name())
+		if err != nil {
+			return false, fmt.Errorf("transform hooks: %w", err)
+		}
+		defer result.Cleanup()
+
+		if result.OutputPath != "" {
+			// Use transformed file for upload
+			transformedFile, err := os.Open(result.OutputPath) //nolint:gosec // G304: Path from trusted hook result
+			if err != nil {
+				return false, fmt.Errorf("open transformed file: %w", err)
+			}
+			defer func() { _ = transformedFile.Close() }()
+
+			stat, err := transformedFile.Stat()
+			if err != nil {
+				return false, fmt.Errorf("stat transformed file: %w", err)
+			}
+
+			uploadFile = transformedFile
+			uploadSize = stat.Size()
+		}
+	}
+
 	// Run pre-upload hooks
 	if hookExecutor != nil && img.Hooks != nil && len(img.Hooks.PreUpload) > 0 {
 		fmt.Printf("  Running pre-upload hooks...\n")
