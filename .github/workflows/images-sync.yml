@@ -133,6 +133,8 @@ jobs:
       - name: Sync Images
         if: github.event_name != 'pull_request'
         id: sync
+        env:
+          SOPS_AGE_KEY_FILE: /tmp/age-key.txt
         run: |
           FLAGS=""
           if [ "${{ inputs.force }}" == "true" ]; then FLAGS="$FLAGS --force"; fi
