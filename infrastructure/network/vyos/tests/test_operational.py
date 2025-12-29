@@ -54,9 +54,9 @@ class TestRoutingState:
 
         Note: In containerlab, the container management network (eth0) may have
         a kernel default route with higher priority than VyOS's static route.
-        We check that the static route is configured via VyOS show commands.
+        We check the static route configuration section directly.
         """
-        output = vyos_show("show configuration commands | grep 'route 0.0.0.0/0'")
+        output = vyos_show("show protocols static")
         assert "0.0.0.0/0" in output, "Static default route not configured"
         assert test_topology.wan_gateway in output, (
             f"Default route via {test_topology.wan_gateway} not found in config"
@@ -64,9 +64,7 @@ class TestRoutingState:
 
     def test_home_network_route_present(self, vyos_show, test_topology):
         """Static route to home network exists via transit link."""
-        output = vyos_show(
-            f"show configuration commands | grep 'route {test_topology.home_cidr}'"
-        )
+        output = vyos_show("show protocols static")
         assert test_topology.home_cidr in output, (
             f"Static route to home network {test_topology.home_cidr} not configured"
         )
