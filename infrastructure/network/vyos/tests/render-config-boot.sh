@@ -45,7 +45,9 @@ cp "${CONFIG_FILE}" "${OUTPUT_FILE}"
 
 # Inject SSH key into the system login section
 # Find the closing brace of the system block and insert login config before it
-sed -i '' '/^system {$/,/^}$/{
+# Use temp file approach for portability (macOS vs GNU sed)
+TEMP_FILE=$(mktemp)
+sed '/^system {$/,/^}$/{
     /^}$/i\
     login {\
         user vyos {\
@@ -57,7 +59,8 @@ sed -i '' '/^system {$/,/^}$/{
             }\
         }\
     }
-}' "${OUTPUT_FILE}"
+}' "${OUTPUT_FILE}" > "${TEMP_FILE}"
+mv "${TEMP_FILE}" "${OUTPUT_FILE}"
 
 # Fix SELinux context if applicable (for container environments)
 if command -v getenforce >/dev/null 2>&1 && command -v chcon >/dev/null 2>&1; then
