@@ -50,18 +50,26 @@ class TestRoutingState:
     """Test routing table state."""
 
     def test_default_route_present(self, vyos_show, test_topology):
-        """Default route exists via WAN gateway (CCR2004 on transit link)."""
-        output = vyos_show("show ip route 0.0.0.0/0")
+        """Default route is configured via WAN gateway (CCR2004 on transit link).
+
+        Note: In containerlab, the container management network (eth0) may have
+        a kernel default route with higher priority than VyOS's static route.
+        We check that the static route is configured, not that it's active.
+        """
+        output = vyos_show("show ip route static")
+        assert "0.0.0.0/0" in output, "Static default route not configured"
         assert test_topology.wan_gateway in output, (
-            f"Default route via {test_topology.wan_gateway} not found"
+            f"Default route via {test_topology.wan_gateway} not found in static routes"
         )
 
     def test_home_network_route_present(self, vyos_show, test_topology):
         """Static route to home network exists via transit link."""
-        output = vyos_show(f"show ip route {test_topology.home_cidr}")
+        output = vyos_show("show ip route static")
+        assert test_topology.home_cidr in output, (
+            f"Static route to home network {test_topology.home_cidr} not configured"
+        )
         assert test_topology.wan_gateway in output, (
-            f"Route to home network {test_topology.home_cidr} via "
-            f"{test_topology.wan_gateway} not found"
+            f"Route to home network via {test_topology.wan_gateway} not found"
         )
 
     def test_connected_routes_present(self, vyos_show):
