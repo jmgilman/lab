@@ -10,7 +10,6 @@
 
 * **Language/Stack:** Go 1.23+, GitHub Actions, iDrive e2, Synology Cloud Sync, Mergify
 * **Relevant Files:**
-    * `infrastructure/network/vyos/vyos-build/` - VyOS image build using vyos-build toolchain
     * `docs/architecture/08_concepts/storage.md` - NFS storage architecture
 * **Style Guide:**
     * Configuration files use YAML
@@ -39,12 +38,12 @@ spec:
         algorithm: sha256
         expected: sha256:def456...  # Post-decompression checksum
 
-    # VyOS ISO for reference/manual builds
-    - name: vyos-iso
+    # VyOS Stream ISO for manual gateway installation
+    - name: vyos-stream
       source:
-        url: https://github.com/vyos/vyos-rolling-nightly-builds/releases/download/1.5-rolling-202412190007/vyos-1.5-rolling-202412190007-amd64.iso
+        url: https://github.com/vyos/vyos-stream/releases/download/2025.11/vyos-2025.11-stream-generic-amd64.iso
         checksum: sha256:abc123...
-      destination: vyos/vyos-1.5-rolling-202412190007.iso
+      destination: vyos/vyos-2025.11-stream-amd64.iso
 
     # Harvester ISO (no transformation)
     - name: harvester-1.4.0
@@ -136,12 +135,10 @@ tools/
 images/
 ├── images.yaml               # Image manifest
 ├── e2.sops.yaml              # e2 credentials (SOPS encrypted)
-├── packer-ssh.sops.yaml      # SSH keypair for image builds (SOPS encrypted)
 └── .sops.yaml                # SOPS config (age + PGP keys)
 
 .github/workflows/
-├── images-sync.yml           # Source image pipeline
-└── vyos-build.yml            # VyOS image build using vyos-build toolchain
+└── images-sync.yml           # Source image pipeline
 ```
 
 ## 4. CLI Interface
@@ -230,16 +227,6 @@ echo "files_changed=true" >> "$GITHUB_OUTPUT"
 │  4. CLOUD SYNC                                                              │
 │     └─> Synology pulls from e2 to /volume1/images/                          │
 │                                                                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                              Derived Images                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  5. VYOS BUILD WORKFLOW (vyos-build.yml)                                    │
-│     └─> Triggered by changes to vyos-build/ or configs/                     │
-│         ├─> Run vyos-build in Docker container                              │
-│         ├─> Upload built image to e2                                        │
-│         └─> Cloud Sync pulls to NAS                                         │
-│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -269,15 +256,15 @@ echo "files_changed=true" >> "$GITHUB_OUTPUT"
   }
 }
 
-// For upload (local files, e.g., vyos-build output)
+// For upload (local files, e.g., custom built images)
 {
-  "name": "vyos-gateway",
+  "name": "custom-image",
   "checksum": "sha256:def456...",
   "size": 8589934592,
   "uploadedAt": "2024-12-20T12:00:00Z",
   "source": {
     "type": "local",
-    "path": "/tmp/vyos-gateway.raw"
+    "path": "/tmp/custom-image.raw"
   }
 }
 ```
@@ -290,16 +277,14 @@ lab-images/
 │   ├── talos/
 │   │   └── talos-1.9.1-amd64.raw
 │   ├── vyos/
-│   │   ├── vyos-1.5-rolling-202412190007.iso    # Source ISO
-│   │   └── vyos-gateway.raw                      # Built by vyos-build
+│   │   └── vyos-2025.11-stream-amd64.iso    # VyOS Stream ISO
 │   └── harvester/
 │       └── harvester-1.4.0-amd64.iso
 └── metadata/
     ├── talos/
     │   └── talos-1.9.1-amd64.raw.json
     ├── vyos/
-    │   ├── vyos-1.5-rolling-202412190007.iso.json
-    │   └── vyos-gateway.raw.json
+    │   └── vyos-2025.11-stream-amd64.iso.json
     └── harvester/
         └── harvester-1.4.0-amd64.iso.json
 ```
@@ -399,125 +384,7 @@ jobs:
             --sops-age-key-file /tmp/age-key.txt
 ```
 
-### 8.2 VyOS Build (vyos-build.yml)
-
-```yaml
-name: Build VyOS Image
-
-on:
-  push:
-    branches: [master]
-    paths:
-      - 'infrastructure/network/vyos/vyos-build/**'
-      - 'infrastructure/network/vyos/configs/gateway.conf'
-  pull_request:
-    paths:
-      - 'infrastructure/network/vyos/vyos-build/**'
-      - 'infrastructure/network/vyos/configs/gateway.conf'
-  workflow_dispatch:
-    inputs:
-      upload:
-        description: 'Upload image to e2 storage'
-        type: boolean
-        default: true
-
-concurrency:
-  group: vyos-build-${{ github.ref }}
-  cancel-in-progress: false
-
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate flavor template
-        run: |
-          TEMPLATE="infrastructure/network/vyos/vyos-build/build-flavors/gateway.toml"
-          if [[ ! -f "${TEMPLATE}" ]]; then
-            echo "ERROR: Template file not found"
-            exit 1
-          fi
-          if ! grep -q '%%SSH_KEY_TYPE%%' "${TEMPLATE}"; then
-            echo "ERROR: Template missing %%SSH_KEY_TYPE%% placeholder"
-            exit 1
-          fi
-          if ! grep -q '%%SSH_PUBLIC_KEY%%' "${TEMPLATE}"; then
-            echo "ERROR: Template missing %%SSH_PUBLIC_KEY%% placeholder"
-            exit 1
-          fi
-
-  build:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-
-      - name: Build labctl
-        run: go build -o labctl ./tools/labctl
-
-      - name: Install SOPS
-        run: |
-          curl -LO https://github.com/getsops/sops/releases/download/v3.9.2/sops-v3.9.2.linux.amd64
-          chmod +x sops-v3.9.2.linux.amd64
-          sudo mv sops-v3.9.2.linux.amd64 /usr/local/bin/sops
-
-      - name: Write SOPS age key
-        run: |
-          echo "${{ secrets.SOPS_AGE_KEY }}" > /tmp/age-key.txt
-          chmod 600 /tmp/age-key.txt
-
-      - name: Extract SSH public key
-        env:
-          SOPS_AGE_KEY_FILE: /tmp/age-key.txt
-        run: |
-          sops --decrypt \
-            --extract '["ssh_public_key"]' images/packer-ssh.sops.yaml > /tmp/ssh_key.pub
-
-      - name: Clone vyos-build
-        run: |
-          git clone -b current --single-branch --depth 1 \
-            https://github.com/vyos/vyos-build.git /tmp/vyos-build
-
-      - name: Generate build flavor
-        run: |
-          ./infrastructure/network/vyos/vyos-build/scripts/generate-flavor.sh \
-            "$(cat /tmp/ssh_key.pub)" \
-            /tmp/vyos-build/data/build-flavors/gateway.toml
-
-      - name: Build VyOS image
-        run: |
-          VERSION="lab-$(date +%Y%m%d%H%M%S)"
-          docker run --rm --privileged \
-            -v /tmp/vyos-build:/vyos \
-            -v /dev:/dev \
-            -w /vyos \
-            vyos/vyos-build:current \
-            bash -c "sudo ./build-vyos-image --architecture amd64 --build-by ci@lab.gilman.io --build-type release --version ${VERSION} gateway"
-
-          RAW_FILE=$(find /tmp/vyos-build -maxdepth 1 -name "*.raw" -type f 2>/dev/null | head -1)
-          cp "${RAW_FILE}" /tmp/vyos-gateway.raw
-
-      - name: Upload to e2
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload)
-        run: |
-          ./labctl images upload \
-            --credentials images/e2.sops.yaml \
-            --sops-age-key-file /tmp/age-key.txt \
-            --source /tmp/vyos-gateway.raw \
-            --destination vyos/vyos-gateway.raw
-```
-
-**VyOS Build Process:** The workflow uses the official `vyos/vyos-build` Docker container
-with build flavors. The `gateway.toml` flavor embeds the VyOS configuration directly into
-the image, with SSH credentials injected via placeholder replacement.
-
-### 8.3 Mergify Configuration (.mergify.yml)
+### 8.2 Mergify Configuration (.mergify.yml)
 
 ```yaml
 pull_request_rules:
@@ -525,9 +392,8 @@ pull_request_rules:
     conditions:
       - author=github-actions[bot]
       - label=automated
-      - base=main
+      - base=master
       - "#approved-reviews-by>=0"  # No approval required for bot PRs
-      - "check-success=Build VyOS Image / validate"
     actions:
       merge:
         method: squash
@@ -536,8 +402,6 @@ pull_request_rules:
 
           {{ body }}
 ```
-
-**Check Name Format:** `Workflow Name / Job Name`
 
 ## 9. Security
 
@@ -556,41 +420,6 @@ sops:
         - XXXX...             # Yubikey
     encrypted_regex: ^(access_key|secret_key)$
 ```
-
-### SOPS-Encrypted SSH Keypair
-
-Used by VyOS builds for image provisioning. The public key is baked into the image; the private key is stored for future use (e.g., post-build testing).
-
-```bash
-# Generate keypair (filename kept as packer-ssh for compatibility)
-ssh-keygen -t ed25519 -f packer-ssh -N "" -C "vyos-ci"
-
-# Create SOPS file
-cat > images/packer-ssh.sops.yaml << 'EOF'
-ssh_public_key: "ssh-ed25519 AAAA... vyos-ci"
-ssh_private_key: |
-  -----BEGIN OPENSSH PRIVATE KEY-----
-  ...
-  -----END OPENSSH PRIVATE KEY-----
-EOF
-
-# Encrypt
-sops --encrypt --in-place images/packer-ssh.sops.yaml
-```
-
-```yaml
-# images/packer-ssh.sops.yaml (encrypted)
-ssh_public_key: ENC[AES256_GCM,data:...,type:str]
-ssh_private_key: ENC[AES256_GCM,data:...,type:str]  # Optional: for future use
-sops:
-    age:
-        - recipient: age1...  # CI key
-    pgp:
-        - XXXX...             # Yubikey
-    encrypted_regex: ^(ssh_public_key|ssh_private_key)$
-```
-
-**Current Usage:** Only `ssh_public_key` is extracted during build. The private key is retained for potential future automation (e.g., post-build smoke tests).
 
 ```yaml
 # images/.sops.yaml

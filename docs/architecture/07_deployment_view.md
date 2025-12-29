@@ -79,7 +79,7 @@ This section describes the physical and virtual infrastructure topology — how 
 
 | Node | Operating System | Deployment Method |
 |:---|:---|:---|
-| **VP6630** | VyOS | Tinkerbell PXE (vyos-build image) |
+| **VP6630** | VyOS | Manual install from Stream ISO |
 | **MS-02 (x3)** | Harvester (Elemental OS) | Tinkerbell PXE |
 | **UM760** | Talos Linux | Tinkerbell PXE |
 | **Platform VMs (x2)** | Talos Linux | CAPI + Harvester |

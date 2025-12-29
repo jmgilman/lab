@@ -6,42 +6,40 @@ This section describes key runtime scenarios — how the system's building block
 
 ## 1. Genesis Bootstrap
 
-The "Genesis" sequence bootstraps the entire infrastructure from bare metal to a fully operational Platform Cluster.
+The "Genesis" sequence bootstraps the entire infrastructure from bare metal to a fully operational Platform Cluster using an embedded configuration ISO approach that eliminates the need for a temporary seed cluster.
 
 ### Prerequisites
 - Physical hardware cabled and powered
-- VyOS image built with vyos-build (baked-in configuration)
-- Synology NAS available with Talos VM capability
+- VyOS Stream ISO downloaded via `labctl images sync`
+- Talos ISO with embedded machine configuration (built via `labctl images sync`)
+- USB drives for VyOS and Talos installation
 
 ### Sequence
 
 ```mermaid
 sequenceDiagram
-    participant NAS as Synology NAS
-    participant Seed as Seed Cluster
-    participant Tink as Tinkerbell
     participant VyOS as VP6630 (VyOS)
     participant UM as UM760
+    participant Argo as Argo CD
+    participant Tink as Tinkerbell
     participant MS as MS-02 (x3)
     participant Harv as Harvester
-    participant Argo as Argo CD
     participant Plat as Platform Cluster
 
-    Note over NAS: Phase 1: Seed
-    NAS->>Seed: Bootstrap single-node Talos VM
-    Seed->>Argo: Deploy Argo CD (Helm)
-    Seed->>Tink: Deploy Tinkerbell stack
-    VyOS->>Tink: PXE boot request
-    Tink->>VyOS: Provision VyOS (lab networking)
-    Note over VyOS: VLANs + DHCP relay active
+    Note over VyOS: Phase 1: Direct Boot
+    VyOS->>VyOS: Boot from Stream ISO (USB)
+    VyOS->>VyOS: Load gateway.conf from USB
+    Note over VyOS: VLANs + NAT + DHCP relay active
+
+    UM->>UM: Boot from embedded Talos ISO (USB)
+    Note over UM: Config embedded in ISO
+    UM->>UM: Install to disk, bootstrap cluster
+    UM->>Argo: Deploy Argo CD (Helm)
 
     Note over UM: Phase 2: Single-Node Platform
-    UM->>Tink: PXE boot request (via VyOS DHCP relay)
-    Tink->>UM: Provision Talos
-    UM->>Seed: Join cluster
-    Seed->>UM: Migrate workloads (Tinkerbell, Argo)
-    NAS->>NAS: Shutdown Seed VM
+    Argo->>UM: Sync clusters/platform/
     UM->>UM: Deploy Crossplane + XRDs
+    UM->>Tink: Deploy Tinkerbell via XRs
 
     Note over MS: Phase 3: Harvester Online
     MS->>Tink: PXE boot (x3)
@@ -52,7 +50,9 @@ sequenceDiagram
 
     Note over Plat: Phase 4: Full Platform
     Harv->>Harv: Create CP-2, CP-3 VMs
-    Harv-->>UM: VMs PXE boot and join
+    Harv-->>Tink: VMs PXE boot
+    Tink->>Harv: Provision Talos on VMs
+    Harv-->>UM: VMs join platform cluster
     UM->>Plat: 3-node Platform Cluster formed
     Plat->>Plat: Deploy remaining services
 ```
@@ -61,10 +61,10 @@ sequenceDiagram
 
 | Phase | Action | Result |
 |:---|:---|:---|
-| **1. Seed** | Bootstrap temporary Talos on NAS, provision VyOS | Tinkerbell + Argo CD + VyOS networking operational |
-| **2. Single-Node Platform** | Provision UM760, migrate from NAS | Single-node platform with Crossplane |
-| **3. Harvester Online** | Provision 3x MS-02, register with Argo CD | HCI cluster managed by Argo CD |
-| **4. Full Platform** | Add 2 Harvester VMs to UM760 | 3-node HA Platform Cluster |
+| **1. Direct Boot** | Install VyOS from ISO, boot UM760 from embedded ISO, deploy Argo CD | Single-node platform with VyOS networking |
+| **2. Single-Node Platform** | Deploy Crossplane + Tinkerbell via GitOps | Platform ready to provision hardware |
+| **3. Harvester Online** | Provision 3x MS-02 via Tinkerbell, register with Argo CD | HCI cluster managed by Argo CD |
+| **4. Full Platform** | Add 2 Harvester VMs to platform cluster | 3-node HA Platform Cluster |
 
 ---
 

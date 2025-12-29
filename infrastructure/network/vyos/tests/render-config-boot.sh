@@ -1,10 +1,16 @@
 #!/bin/bash
+# Render config.boot for containerlab testing
+#
+# Takes gateway.conf as the base configuration and injects an SSH public key
+# for test authentication.
+#
+# Usage: render-config-boot.sh <ssh_public_key>
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/.."
-TEMPLATE_FILE="${REPO_ROOT}/templates/gateway.toml"
+CONFIG_FILE="${REPO_ROOT}/configs/gateway.conf"
 OUTPUT_FILE="${SCRIPT_DIR}/config.boot"
 
 usage() {
@@ -29,17 +35,34 @@ if [[ -z "${SSH_KEY_TYPE}" ]] || [[ -z "${SSH_KEY_BODY}" ]]; then
     exit 1
 fi
 
-if [[ ! -f "${TEMPLATE_FILE}" ]]; then
-    echo "ERROR: Template file not found: ${TEMPLATE_FILE}"
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+    echo "ERROR: Config file not found: ${CONFIG_FILE}"
     exit 1
 fi
 
-sed -n "/^default_config = '''$/,/^'''$/p" "${TEMPLATE_FILE}" \
-    | sed '1d;$d' \
-    | sed -e "s|%%SSH_KEY_TYPE%%|${SSH_KEY_TYPE}|g" \
-          -e "s|%%SSH_PUBLIC_KEY%%|${SSH_KEY_BODY}|g" \
-    > "${OUTPUT_FILE}"
+# Start with the base gateway.conf
+cp "${CONFIG_FILE}" "${OUTPUT_FILE}"
 
+# Inject SSH key into the system login section
+# Find the closing brace of the system block and insert login config before it
+# Use temp file approach for portability (macOS vs GNU sed)
+TEMP_FILE=$(mktemp)
+sed '/^system {$/,/^}$/{
+    /^}$/i\
+    login {\
+        user vyos {\
+            authentication {\
+                public-keys test {\
+                    key "'"${SSH_KEY_BODY}"'"\
+                    type '"${SSH_KEY_TYPE}"'\
+                }\
+            }\
+        }\
+    }
+}' "${OUTPUT_FILE}" > "${TEMP_FILE}"
+mv "${TEMP_FILE}" "${OUTPUT_FILE}"
+
+# Fix SELinux context if applicable (for container environments)
 if command -v getenforce >/dev/null 2>&1 && command -v chcon >/dev/null 2>&1; then
     if [[ "$(getenforce)" == "Enforcing" ]]; then
         if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then

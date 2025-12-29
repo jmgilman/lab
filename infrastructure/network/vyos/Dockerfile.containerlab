@@ -1,12 +1,15 @@
 # VyOS Container Image for Containerlab Testing
 #
-# This Dockerfile builds a container image from the VyOS squashfs filesystem
-# produced by vyos-build. The container uses the same rootfs as the production
-# raw disk image, ensuring test fidelity.
+# This Dockerfile builds a container image from a VyOS squashfs filesystem.
+# It can be used with a squashfs extracted from a VyOS ISO or from an
+# official VyOS container.
 #
 # Usage:
-#   sqfs2tar build/live/filesystem.squashfs > rootfs.tar
+#   # From ISO: Extract squashfs from VyOS ISO, then:
+#   sqfs2tar path/to/filesystem.squashfs > rootfs.tar
 #   docker build -t vyos-gateway:test -f Dockerfile.containerlab .
+#
+# Alternative: Use the official vyos/vyos:current container directly with Containerlab.
 #
 # The resulting image can be used with Containerlab for integration testing.
 
