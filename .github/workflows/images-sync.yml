@@ -5,9 +5,11 @@ on:
     branches: [master]
     paths:
       - 'images/**'
+      - 'infrastructure/network/vyos/**'
   pull_request:
     paths:
       - 'images/**'
+      - 'infrastructure/network/vyos/**'
   workflow_dispatch:
     inputs:
       force:
@@ -16,6 +18,10 @@ on:
         default: false
       prune:
         description: 'Run prune after sync'
+        type: boolean
+        default: false
+      skip_hooks:
+        description: 'Skip pre-upload hooks (tests)'
         type: boolean
         default: false
 
@@ -30,12 +36,13 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: tools/labctl/go.mod
           cache-dependency-path: tools/labctl/go.sum
 
       - name: Build labctl
@@ -43,12 +50,67 @@ jobs:
           cd tools/labctl
           go build -o ../../labctl .
 
+      # Validate manifest structure and hook scripts
+      - name: Validate Manifest
+        run: |
+          ./labctl images validate
+          # Also validate hook scripts are executable
+          for script in images/hooks/*.sh; do
+            if [[ -f "${script}" && ! -x "${script}" ]]; then
+              echo "ERROR: Script not executable: ${script}"
+              exit 1
+            fi
+          done
+
+      # Install dependencies for pre-upload hooks (e.g., VyOS tests)
+      # Skip on workflow_dispatch if skip_hooks is true
+      - name: Install hook dependencies
+        if: inputs.skip_hooks != true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full squashfs-tools-ng
+
+      - name: Install Containerlab
+        if: inputs.skip_hooks != true
+        run: |
+          bash -c "$(curl -sL https://get.containerlab.dev)"
+          containerlab version
+
+      - name: Set up Python
+        if: inputs.skip_hooks != true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: infrastructure/network/vyos/tests/requirements.txt
+
+      - name: Install Python test dependencies
+        if: inputs.skip_hooks != true
+        run: |
+          pip install -r infrastructure/network/vyos/tests/requirements.txt
+
+      # Cache for downloaded ISOs and hook artifacts (rootfs.tar)
+      - name: Setup labctl cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/labctl
+          key: labctl-images-${{ hashFiles('images/images.yaml') }}
+          restore-keys: |
+            labctl-images-
+
+      # PR: run full sync without upload (tests hooks, no credentials needed)
+      - name: Sync Images (PR - no upload)
+        if: github.event_name == 'pull_request'
+        run: |
+          ./labctl images sync --no-upload --cache-dir ~/.cache/labctl
+
+      # Push/dispatch: full sync with credentials
       - name: Install SOPS
         if: github.event_name != 'pull_request'
         run: |
-          curl -LO https://github.com/getsops/sops/releases/download/v3.9.2/sops-v3.9.2.linux.amd64
-          chmod +x sops-v3.9.2.linux.amd64
-          sudo mv sops-v3.9.2.linux.amd64 /usr/local/bin/sops
+          curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+          chmod +x sops-v3.9.4.linux.amd64
+          sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
 
       - name: Write SOPS age key
         if: github.event_name != 'pull_request'
@@ -56,22 +118,18 @@ jobs:
           echo "${{ secrets.SOPS_AGE_KEY }}" > /tmp/age-key.txt
           chmod 600 /tmp/age-key.txt
 
-      # PR: validate manifest only (no credentials needed)
-      - name: Validate Manifest (PR)
-        if: github.event_name == 'pull_request'
-        run: ./labctl images validate
-
-      # Push/dispatch: full sync with credentials
       - name: Sync Images
         if: github.event_name != 'pull_request'
         id: sync
         run: |
           FLAGS=""
-          if [ "${{ inputs.force }}" == "true" ]; then FLAGS="--force"; fi
+          if [ "${{ inputs.force }}" == "true" ]; then FLAGS="$FLAGS --force"; fi
+          if [ "${{ inputs.skip_hooks }}" == "true" ]; then FLAGS="$FLAGS --skip-hooks"; fi
 
           ./labctl images sync \
             --credentials images/e2.sops.yaml \
             --sops-age-key-file /tmp/age-key.txt \
+            --cache-dir ~/.cache/labctl \
             $FLAGS
 
       - name: Create PR if files changed

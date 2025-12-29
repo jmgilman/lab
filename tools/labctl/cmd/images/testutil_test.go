@@ -87,3 +87,11 @@ func (m *mockStoreClient) ChecksumMatches(ctx context.Context, imagePath, expect
 	}
 	return false, nil
 }
+
+func (*mockStoreClient) GetHookResult(_ context.Context, _, _ string) (*store.HookResult, error) {
+	return nil, nil
+}
+
+func (*mockStoreClient) PutHookResult(_ context.Context, _, _ string, _ *store.HookResult) error {
+	return nil
+}

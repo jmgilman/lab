@@ -18,4 +18,5 @@ func init() {
 	Cmd.AddCommand(listCmd)
 	Cmd.AddCommand(pruneCmd)
 	Cmd.AddCommand(uploadCmd)
+	Cmd.AddCommand(downloadCmd)
 }

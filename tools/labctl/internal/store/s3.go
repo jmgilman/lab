@@ -29,6 +29,8 @@ type Client interface {
 	GetMetadata(ctx context.Context, imagePath string) (*ImageMetadata, error)
 	PutMetadata(ctx context.Context, imagePath string, metadata *ImageMetadata) error
 	ChecksumMatches(ctx context.Context, imagePath, expectedChecksum string) (bool, error)
+	GetHookResult(ctx context.Context, imagePath, hookName string) (*HookResult, error)
+	PutHookResult(ctx context.Context, imagePath, hookName string, result *HookResult) error
 }
 
 // ImageMetadata represents metadata stored alongside each image.
@@ -290,4 +292,48 @@ func (c *S3Client) ChecksumMatches(ctx context.Context, imagePath, expectedCheck
 	}
 
 	return metadata.Checksum == expectedChecksum, nil
+}
+
+// GetHookResult retrieves the cached result of a hook execution.
+// Returns nil, nil if the hook result doesn't exist.
+func (c *S3Client) GetHookResult(ctx context.Context, imagePath, hookName string) (*HookResult, error) {
+	key := HookResultKey(imagePath, hookName)
+
+	exists, err := c.Exists(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, nil
+	}
+
+	body, err := c.Download(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = body.Close() }()
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return nil, fmt.Errorf("read hook result: %w", err)
+	}
+
+	var result HookResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("parse hook result: %w", err)
+	}
+
+	return &result, nil
+}
+
+// PutHookResult stores the result of a hook execution.
+func (c *S3Client) PutHookResult(ctx context.Context, imagePath, hookName string, result *HookResult) error {
+	key := HookResultKey(imagePath, hookName)
+
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal hook result: %w", err)
+	}
+
+	return c.Upload(ctx, key, bytes.NewReader(data), int64(len(data)))
 }

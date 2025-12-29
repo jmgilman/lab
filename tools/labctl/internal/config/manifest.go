@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -38,6 +39,31 @@ type Image struct {
 	Destination string      `yaml:"destination"`
 	Validation  *Validation `yaml:"validation,omitempty"`
 	UpdateFile  *UpdateFile `yaml:"updateFile,omitempty"`
+	Hooks       *Hooks      `yaml:"hooks,omitempty"`
+}
+
+// Hooks defines lifecycle hooks for an image.
+type Hooks struct {
+	// PreUpload runs after download/verification, before upload.
+	// Hook must exit 0 for upload to proceed.
+	PreUpload []Hook `yaml:"preUpload,omitempty"`
+}
+
+// Hook defines a hook to run during image processing.
+type Hook struct {
+	// Name is a human-readable identifier for the hook.
+	Name string `yaml:"name"`
+	// Command is the executable to run (path or command name).
+	Command string `yaml:"command"`
+	// Args are additional arguments to pass to the command.
+	// The image path is always passed as the first argument.
+	Args []string `yaml:"args,omitempty"`
+	// Timeout is the maximum duration for the hook to run.
+	// Defaults to 30 minutes if not specified.
+	Timeout string `yaml:"timeout,omitempty"`
+	// WorkDir is the working directory for the command.
+	// If not specified, uses the current working directory.
+	WorkDir string `yaml:"workDir,omitempty"`
 }
 
 // Source defines where to download the image from.
@@ -72,6 +98,16 @@ func (i *Image) EffectiveChecksum() string {
 		return i.Validation.Expected
 	}
 	return i.Source.Checksum
+}
+
+// FindImageByName returns the image with the given name, or nil if not found.
+func (m *ImageManifest) FindImageByName(name string) *Image {
+	for i := range m.Spec.Images {
+		if m.Spec.Images[i].Name == name {
+			return &m.Spec.Images[i]
+		}
+	}
+	return nil
 }
 
 // LoadManifest reads and parses an image manifest from a file.
@@ -228,6 +264,36 @@ func (i *Image) ValidateAll() []error {
 			if r.Value == "" {
 				errs = append(errs, fmt.Errorf("updateFile.replacements[%d].value is required", j))
 			}
+		}
+	}
+
+	// Validate hooks
+	if i.Hooks != nil {
+		for j, h := range i.Hooks.PreUpload {
+			for _, err := range h.ValidateAll() {
+				errs = append(errs, fmt.Errorf("hooks.preUpload[%d]: %w", j, err))
+			}
+		}
+	}
+
+	return errs
+}
+
+// ValidateAll checks the hook configuration and returns all validation errors.
+func (h *Hook) ValidateAll() []error {
+	var errs []error
+
+	if h.Name == "" {
+		errs = append(errs, fmt.Errorf("name is required"))
+	}
+
+	if h.Command == "" {
+		errs = append(errs, fmt.Errorf("command is required"))
+	}
+
+	if h.Timeout != "" {
+		if _, err := time.ParseDuration(h.Timeout); err != nil {
+			errs = append(errs, fmt.Errorf("invalid timeout %q: %w", h.Timeout, err))
 		}
 	}
 

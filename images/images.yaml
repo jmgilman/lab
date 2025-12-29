@@ -4,10 +4,13 @@ metadata:
   name: lab-images
 spec:
   images:
-    - name: vyos-iso
+    - name: vyos-stream
       source:
-        # VyOS rolling nightly build
-        # Note: Update checksum after downloading and verifying the ISO
-        url: https://github.com/vyos/vyos-nightly-build/releases/download/2025.12.20-0020-rolling/vyos-2025.12.20-0020-rolling-generic-amd64.iso
-        checksum: sha256:7f9eb1d6d9aacbd8fb684bb384cf2251d987097993fe7dbead8653ffbde31d04
-      destination: vyos/vyos-2025.12.20-0020-rolling-generic-amd64.iso
+        url: https://community-downloads.vyos.dev/stream/2025.11/vyos-2025.11-generic-amd64.iso
+        checksum: sha256:f60a2d7dd3bdf2e370a45c04ed4fc3b195691694ca3b8546adf4c5983e70d96e
+      destination: vyos/vyos-2025.11-generic-amd64.iso
+      hooks:
+        preUpload:
+          - name: vyos-integration-test
+            command: ./images/hooks/vyos-test.sh
+            timeout: 20m
