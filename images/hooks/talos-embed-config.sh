@@ -94,12 +94,12 @@ get_talos_version() {
 
 # Generate machine configuration using talhelper
 generate_config() {
-    echo "Generating machine configuration..."
+    echo "Generating machine configuration..." >&2
 
     cd "${TALOS_DIR}"
 
     # Generate configs to work directory
-    talhelper genconfig --out-dir "${WORK_DIR}/clusterconfig"
+    talhelper genconfig --out-dir "${WORK_DIR}/clusterconfig" >&2
 
     # Find the config file for the specified node
     local cluster_name
@@ -114,7 +114,8 @@ generate_config() {
         exit 1
     fi
 
-    echo "  Generated config: ${config_file}"
+    echo "  Generated config: ${config_file}" >&2
+    # Only the path goes to stdout for capture
     echo "${config_file}"
 }
 
