@@ -35,7 +35,7 @@ topology:
       image: alpine:latest
       exec:
         - sh -c "ip link add br0 type bridge && ip link set br0 up"
-        - sh -c "for iface in eth1 eth2 eth3 eth4 eth5 eth6 eth7 eth8; do ip link set $iface up && ip link set $iface master br0; done"
+        - sh -c "for iface in eth1 eth2 eth3 eth4 eth5 eth6 eth7; do ip link set $iface up && ip link set $iface master br0; done"
 
     # WAN-side client (simulates CCR2004 on transit link + home network client)
     # Primary: 10.0.0.1/30 (transit link - acts as CCR2004)
