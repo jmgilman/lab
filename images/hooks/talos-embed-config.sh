@@ -135,12 +135,14 @@ embed_config() {
     # The imager creates a fresh ISO from scratch - it doesn't modify the downloaded ISO
     # Mount work dir to /out (imager's default output directory)
     # Note: --privileged is required for SELinux xattr operations on CI runners
-    docker run --rm -t --privileged \
+    # IMPORTANT: Redirect stdout to /dev/null to prevent secrets from being logged
+    # The imager prints the full profile (including embedded config with certs/keys) to stdout
+    docker run --rm --privileged \
         -v "${WORK_DIR}:/out" \
         "ghcr.io/siderolabs/imager:${talos_version}" \
         iso \
         --arch amd64 \
-        --embedded-config-path=/out/machine.yaml
+        --embedded-config-path=/out/machine.yaml > /dev/null
 
     # Find the generated ISO (imager outputs to /out/metal-amd64.iso)
     local output_iso="${WORK_DIR}/metal-amd64.iso"
