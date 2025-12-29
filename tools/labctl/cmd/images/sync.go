@@ -20,6 +20,7 @@ import (
 
 	"github.com/GilmanLab/lab/tools/labctl/internal/config"
 	"github.com/GilmanLab/lab/tools/labctl/internal/credentials"
+	"github.com/GilmanLab/lab/tools/labctl/internal/hooks"
 	"github.com/GilmanLab/lab/tools/labctl/internal/store"
 	"github.com/GilmanLab/lab/tools/labctl/internal/updater"
 )
@@ -47,6 +48,8 @@ var (
 	syncSOPSAgeKeyFile string
 	syncDryRun         bool
 	syncForce          bool
+	syncSkipHooks      bool
+	syncNoUpload       bool
 )
 
 func init() {
@@ -55,6 +58,8 @@ func init() {
 	syncCmd.Flags().StringVar(&syncSOPSAgeKeyFile, "sops-age-key-file", "", "Path to age private key for SOPS decryption")
 	syncCmd.Flags().BoolVar(&syncDryRun, "dry-run", false, "Show what would be done without executing")
 	syncCmd.Flags().BoolVar(&syncForce, "force", false, "Force re-upload even if checksums match")
+	syncCmd.Flags().BoolVar(&syncSkipHooks, "skip-hooks", false, "Skip pre-upload hooks")
+	syncCmd.Flags().BoolVar(&syncNoUpload, "no-upload", false, "Download and run hooks but skip upload (for testing)")
 }
 
 func runSync(_ *cobra.Command, _ []string) error {
@@ -69,9 +74,10 @@ func runSync(_ *cobra.Command, _ []string) error {
 	fmt.Printf("Syncing images from manifest: %s\n", syncManifest)
 	fmt.Printf("Found %d image(s)\n\n", len(manifest.Spec.Images))
 
-	// Skip credentials and S3 client setup in dry-run mode
+	// Skip credentials and S3 client setup in dry-run or no-upload mode
 	var client *store.S3Client
-	if !syncDryRun {
+	var hookExecutor *hooks.Executor
+	if !syncDryRun && !syncNoUpload {
 		// Resolve credentials
 		creds, err := credentials.Resolve(credentials.ResolveOptions{
 			SOPSFile:   syncCredentials,
@@ -86,6 +92,14 @@ func runSync(_ *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("create S3 client: %w", err)
 		}
+
+		// Create hook executor with caching (unless skipped)
+		if !syncSkipHooks {
+			hookExecutor = hooks.NewExecutor(client)
+		}
+	} else if syncNoUpload && !syncSkipHooks {
+		// In no-upload mode, create hook executor without caching
+		hookExecutor = hooks.NewExecutor(nil)
 	}
 
 	// Track if any files were changed (for GitHub Actions output)
@@ -93,7 +107,7 @@ func runSync(_ *cobra.Command, _ []string) error {
 
 	// Process each image
 	for _, img := range manifest.Spec.Images {
-		changed, err := syncImageWithHTTP(ctx, client, http.DefaultClient, img, syncDryRun, syncForce)
+		changed, err := syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, img, syncDryRun, syncForce, syncNoUpload)
 		if err != nil {
 			return fmt.Errorf("sync image %q: %w", img.Name, err)
 		}
@@ -118,19 +132,19 @@ func runSync(_ *cobra.Command, _ []string) error {
 
 // syncImage syncs an image using the default HTTP client.
 // This is a convenience wrapper for syncImageWithHTTP.
-func syncImage(ctx context.Context, client store.Client, img config.Image, dryRun, force bool) (bool, error) {
-	return syncImageWithHTTP(ctx, client, http.DefaultClient, img, dryRun, force)
+func syncImage(ctx context.Context, client store.Client, hookExecutor *hooks.Executor, img config.Image, dryRun, force, noUpload bool) (bool, error) {
+	return syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, img, dryRun, force, noUpload)
 }
 
 // syncImageWithHTTP syncs an image using the provided HTTP and store clients.
 // This function enables dependency injection for testing.
-func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTPClient, img config.Image, dryRun, force bool) (bool, error) {
+func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTPClient, hookExecutor *hooks.Executor, img config.Image, dryRun, force, noUpload bool) (bool, error) {
 	fmt.Printf("Processing: %s\n", img.Name)
 
 	effectiveChecksum := img.EffectiveChecksum()
 
-	// Check if image already exists with matching checksum
-	if !dryRun && !force {
+	// Check if image already exists with matching checksum (skip in no-upload mode)
+	if !dryRun && !force && !noUpload {
 		matches, err := client.ChecksumMatches(ctx, img.Destination, effectiveChecksum)
 		if err != nil {
 			return false, fmt.Errorf("check existing image: %w", err)
@@ -203,6 +217,21 @@ func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTP
 	} else {
 		uploadFile = tempFile
 		uploadSize = size
+	}
+
+	// Run pre-upload hooks
+	if hookExecutor != nil && img.Hooks != nil && len(img.Hooks.PreUpload) > 0 {
+		fmt.Printf("  Running pre-upload hooks...\n")
+		if err := hookExecutor.RunPreUploadHooks(ctx, img, uploadFile.Name(), effectiveChecksum); err != nil {
+			return false, fmt.Errorf("pre-upload hooks: %w", err)
+		}
+	}
+
+	// Skip upload in no-upload mode (used for PR testing)
+	if noUpload {
+		fmt.Printf("  Skipping upload (--no-upload mode)\n")
+		fmt.Printf("  Done\n")
+		return false, nil
 	}
 
 	// Upload to e2
