@@ -19,9 +19,9 @@ spec:
     # Base ISO: Vanilla Talos for general use (VMs, other nodes)
     - name: talos-base
       source:
-        url: https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.9.1/metal-amd64.iso
-        checksum: sha256:a9c5f4bcb634c5af5e78780d71317197407673db76dcc34d809adc0042a818e2
-      destination: talos/talos-1.9.1-metal-amd64.iso
+        url: https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.12.0/metal-amd64.iso
+        checksum: sha256:862d7afc6b9f9c27033f5addf05f699b48be83aea81768349ae9a07b9e8eb8b5
+      destination: talos/talos-1.12.0-metal-amd64.iso
 
     # UM760 ISO: Talos with embedded machine configuration for CP-1
     # The transform hook generates machine config via talhelper and embeds it
@@ -32,9 +32,9 @@ spec:
         # Note: The downloaded ISO is replaced entirely by the imager output.
         # We use the same base URL for consistency, but only the Talos version
         # from talconfig.yaml matters for the final ISO.
-        url: https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.9.1/metal-amd64.iso
-        checksum: sha256:a9c5f4bcb634c5af5e78780d71317197407673db76dcc34d809adc0042a818e2
-      destination: talos/talos-1.9.1-um760.iso
+        url: https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.12.0/metal-amd64.iso
+        checksum: sha256:862d7afc6b9f9c27033f5addf05f699b48be83aea81768349ae9a07b9e8eb8b5
+      destination: talos/talos-1.12.0-um760.iso
       hooks:
         transform:
           - name: embed-um760-config

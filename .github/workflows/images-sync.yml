@@ -98,38 +98,35 @@ jobs:
           restore-keys: |
             labctl-images-
 
-      # PR: run full sync without upload (tests hooks, no credentials needed)
-      # Skip transform hooks in PR - they require specialized tools (talhelper, sops, docker)
-      # that are only available in the full sync environment
-      - name: Sync Images (PR - no upload)
-        if: github.event_name == 'pull_request'
-        run: |
-          ./labctl images sync --no-upload --skip-transform-hooks --cache-dir ~/.cache/labctl
-
-      # Push/dispatch: full sync with credentials
       # Install tools needed for transform hooks (talhelper, sops)
       - name: Install SOPS
-        if: github.event_name != 'pull_request'
         run: |
           curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
           chmod +x sops-v3.9.4.linux.amd64
           sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
 
       - name: Install talhelper
-        if: github.event_name != 'pull_request'
         run: |
-          curl -LO https://github.com/budimanjojo/talhelper/releases/download/v3.0.13/talhelper_linux_amd64.tar.gz
+          curl -LO https://github.com/budimanjojo/talhelper/releases/download/v3.0.43/talhelper_linux_amd64.tar.gz
           tar -xzf talhelper_linux_amd64.tar.gz
           chmod +x talhelper
           sudo mv talhelper /usr/local/bin/talhelper
           talhelper --version
 
       - name: Write SOPS age key
-        if: github.event_name != 'pull_request'
         run: |
           echo "${{ secrets.SOPS_AGE_KEY }}" > /tmp/age-key.txt
           chmod 600 /tmp/age-key.txt
 
+      # PR: run sync without upload, skipping transform hooks (they require docker)
+      - name: Sync Images (PR - no upload)
+        if: github.event_name == 'pull_request'
+        env:
+          SOPS_AGE_KEY_FILE: /tmp/age-key.txt
+        run: |
+          ./labctl images sync --no-upload --skip-transform-hooks --cache-dir ~/.cache/labctl
+
+      # Push/dispatch: full sync with credentials
       - name: Sync Images
         if: github.event_name != 'pull_request'
         id: sync
