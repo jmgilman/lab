@@ -107,7 +107,7 @@ jobs:
 
       - name: Install talhelper
         run: |
-          curl -LO https://github.com/budimanjojo/talhelper/releases/download/v3.0.13/talhelper_linux_amd64.tar.gz
+          curl -LO https://github.com/budimanjojo/talhelper/releases/download/v3.0.43/talhelper_linux_amd64.tar.gz
           tar -xzf talhelper_linux_amd64.tar.gz
           chmod +x talhelper
           sudo mv talhelper /usr/local/bin/talhelper
