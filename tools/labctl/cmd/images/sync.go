@@ -44,14 +44,15 @@ downstream builds.`,
 }
 
 var (
-	syncManifest       string
-	syncCredentials    string
-	syncSOPSAgeKeyFile string
-	syncDryRun         bool
-	syncForce          bool
-	syncSkipHooks      bool
-	syncNoUpload       bool
-	syncCacheDir       string
+	syncManifest           string
+	syncCredentials        string
+	syncSOPSAgeKeyFile     string
+	syncDryRun             bool
+	syncForce              bool
+	syncSkipHooks          bool
+	syncSkipTransformHooks bool
+	syncNoUpload           bool
+	syncCacheDir           string
 )
 
 func init() {
@@ -61,6 +62,7 @@ func init() {
 	syncCmd.Flags().BoolVar(&syncDryRun, "dry-run", false, "Show what would be done without executing")
 	syncCmd.Flags().BoolVar(&syncForce, "force", false, "Force re-upload even if checksums match")
 	syncCmd.Flags().BoolVar(&syncSkipHooks, "skip-hooks", false, "Skip pre-upload hooks")
+	syncCmd.Flags().BoolVar(&syncSkipTransformHooks, "skip-transform-hooks", false, "Skip transform hooks (for CI without specialized tools)")
 	syncCmd.Flags().BoolVar(&syncNoUpload, "no-upload", false, "Download and run hooks but skip upload (for testing)")
 	syncCmd.Flags().StringVar(&syncCacheDir, "cache-dir", "", "Local cache directory for downloads and hooks")
 }
@@ -121,7 +123,7 @@ func runSync(_ *cobra.Command, _ []string) error {
 
 	// Process each image
 	for _, img := range manifest.Spec.Images {
-		changed, err := syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, syncDryRun, syncForce, syncNoUpload)
+		changed, err := syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, syncDryRun, syncForce, syncNoUpload, syncSkipTransformHooks)
 		if err != nil {
 			return fmt.Errorf("sync image %q: %w", img.Name, err)
 		}
@@ -144,15 +146,15 @@ func runSync(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// syncImage syncs an image using the default HTTP client.
+// syncImage syncs a single image using the default HTTP client.
 // This is a convenience wrapper for syncImageWithHTTP.
-func syncImage(ctx context.Context, client store.Client, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, dryRun, force, noUpload bool) (bool, error) {
-	return syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, dryRun, force, noUpload)
+func syncImage(ctx context.Context, client store.Client, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, dryRun, force, noUpload, skipTransformHooks bool) (bool, error) {
+	return syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, dryRun, force, noUpload, skipTransformHooks)
 }
 
 // syncImageWithHTTP syncs an image using the provided HTTP and store clients.
 // This function enables dependency injection for testing.
-func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTPClient, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, dryRun, force, noUpload bool) (bool, error) {
+func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTPClient, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, dryRun, force, noUpload, skipTransformHooks bool) (bool, error) {
 	fmt.Printf("Processing: %s\n", img.Name)
 
 	effectiveChecksum := img.EffectiveChecksum()
@@ -299,29 +301,33 @@ func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTP
 	}
 
 	// Run transform hooks (before pre-upload hooks)
-	if hookExecutor != nil && img.Hooks != nil && len(img.Hooks.Transform) > 0 {
-		fmt.Printf("  Running transform hooks...\n")
-		result, err := hookExecutor.RunTransformHooks(ctx, img, uploadFile.Name())
-		if err != nil {
-			return false, fmt.Errorf("transform hooks: %w", err)
-		}
-		defer result.Cleanup()
-
-		if result.OutputPath != "" {
-			// Use transformed file for upload
-			transformedFile, err := os.Open(result.OutputPath) //nolint:gosec // G304: Path from trusted hook result
+	if img.Hooks != nil && len(img.Hooks.Transform) > 0 {
+		if skipTransformHooks {
+			fmt.Printf("  Skipping transform hooks (--skip-transform-hooks)\n")
+		} else if hookExecutor != nil {
+			fmt.Printf("  Running transform hooks...\n")
+			result, err := hookExecutor.RunTransformHooks(ctx, img, uploadFile.Name())
 			if err != nil {
-				return false, fmt.Errorf("open transformed file: %w", err)
+				return false, fmt.Errorf("transform hooks: %w", err)
 			}
-			defer func() { _ = transformedFile.Close() }()
+			defer result.Cleanup()
 
-			stat, err := transformedFile.Stat()
-			if err != nil {
-				return false, fmt.Errorf("stat transformed file: %w", err)
+			if result.OutputPath != "" {
+				// Use transformed file for upload
+				transformedFile, err := os.Open(result.OutputPath) //nolint:gosec // G304: Path from trusted hook result
+				if err != nil {
+					return false, fmt.Errorf("open transformed file: %w", err)
+				}
+				defer func() { _ = transformedFile.Close() }()
+
+				stat, err := transformedFile.Stat()
+				if err != nil {
+					return false, fmt.Errorf("stat transformed file: %w", err)
+				}
+
+				uploadFile = transformedFile
+				uploadSize = stat.Size()
 			}
-
-			uploadFile = transformedFile
-			uploadSize = stat.Size()
 		}
 	}
 
