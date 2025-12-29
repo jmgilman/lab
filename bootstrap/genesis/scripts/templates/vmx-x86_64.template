@@ -1,0 +1,40 @@
+.encoding = "UTF-8"
+config.version = "8"
+virtualHW.version = "22"
+displayName = "{vm_name}"
+guestOS = "{guest_os}"
+
+# Hardware
+numvcpus = "2"
+memsize = "2048"
+virtualHW.productCompatibility = "hosted"
+
+# SCSI disk (Ubuntu cloud image)
+scsi0.present = "TRUE"
+scsi0.virtualDev = "lsilogic"
+scsi0:0.fileName = "{vmdk_path}"
+scsi0:0.present = "TRUE"
+
+# IDE CD-ROM (cloud-init)
+ide0:0.present = "TRUE"
+ide0:0.deviceType = "cdrom-image"
+ide0:0.fileName = "{cloud_init_iso}"
+ide0:0.startConnected = "TRUE"
+
+# USB controller
+usb.present = "TRUE"
+usb.generic.autoconnect = "TRUE"
+usb_xhci.present = "TRUE"
+
+# USB device auto-connect
+usb.autoConnect.device0 = "vid:{vid} pid:{pid}"
+
+# Network (NAT for internet access)
+ethernet0.present = "TRUE"
+ethernet0.connectionType = "nat"
+ethernet0.virtualDev = "e1000"
+ethernet0.addressType = "generated"
+
+# Misc
+floppy0.present = "FALSE"
+tools.upgrade.policy = "manual"

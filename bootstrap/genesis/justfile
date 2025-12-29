@@ -1,0 +1,20 @@
+# Default recipe
+default: check
+
+# Run formatting checks and auto-fix
+fmt:
+    uvx ruff format .
+
+# Run linters
+lint:
+    uvx ruff check . --fix
+
+# Run checks (CI mode - no auto-fix)
+check:
+    uvx ruff format --check .
+    uvx ruff check .
+
+# Clean up cache files
+clean:
+    rm -rf .ruff_cache
+    rm -rf .cache

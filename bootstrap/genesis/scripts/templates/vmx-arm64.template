@@ -1,0 +1,64 @@
+.encoding = "UTF-8"
+config.version = "8"
+virtualHW.version = "22"
+displayName = "{vm_name}"
+guestOS = "{guest_os}"
+firmware = "efi"
+
+# PCIe bridges (required for ARM)
+pciBridge0.present = "TRUE"
+pciBridge4.present = "TRUE"
+pciBridge4.virtualDev = "pcieRootPort"
+pciBridge4.functions = "8"
+pciBridge5.present = "TRUE"
+pciBridge5.virtualDev = "pcieRootPort"
+pciBridge5.functions = "8"
+pciBridge6.present = "TRUE"
+pciBridge6.virtualDev = "pcieRootPort"
+pciBridge6.functions = "8"
+pciBridge7.present = "TRUE"
+pciBridge7.virtualDev = "pcieRootPort"
+pciBridge7.functions = "8"
+
+# Hardware
+numvcpus = "2"
+memsize = "2048"
+virtualHW.productCompatibility = "hosted"
+hpet0.present = "TRUE"
+vmci0.present = "TRUE"
+
+# NVMe disk (Ubuntu cloud image)
+nvme0.present = "TRUE"
+nvme0.pciSlotNumber = "224"
+nvme0:0.fileName = "{vmdk_path}"
+nvme0:0.present = "TRUE"
+
+# SATA controller for CD-ROM (cloud-init)
+sata0.present = "TRUE"
+sata0.pciSlotNumber = "35"
+sata0:0.present = "TRUE"
+sata0:0.deviceType = "cdrom-image"
+sata0:0.fileName = "{cloud_init_iso}"
+
+# USB controllers
+usb.present = "TRUE"
+usb.pciSlotNumber = "32"
+ehci.present = "TRUE"
+ehci.pciSlotNumber = "34"
+usb_xhci.present = "TRUE"
+usb_xhci.pciSlotNumber = "192"
+usb.generic.autoconnect = "TRUE"
+
+# USB device auto-connect
+usb.autoConnect.device0 = "vid:{vid} pid:{pid}"
+
+# Network (NAT for internet access)
+ethernet0.present = "TRUE"
+ethernet0.connectionType = "nat"
+ethernet0.virtualDev = "e1000e"
+ethernet0.addressType = "generated"
+ethernet0.pciSlotNumber = "160"
+
+# Misc
+floppy0.present = "FALSE"
+tools.upgrade.policy = "manual"
