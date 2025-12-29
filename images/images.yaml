@@ -9,3 +9,8 @@ spec:
         url: https://community-downloads.vyos.dev/stream/2025.11/vyos-2025.11-generic-amd64.iso
         checksum: sha256:f60a2d7dd3bdf2e370a45c04ed4fc3b195691694ca3b8546adf4c5983e70d96e
       destination: vyos/vyos-2025.11-generic-amd64.iso
+      hooks:
+        preUpload:
+          - name: vyos-integration-test
+            command: ./images/hooks/vyos-test.sh
+            timeout: 20m
