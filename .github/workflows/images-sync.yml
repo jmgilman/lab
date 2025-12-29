@@ -99,10 +99,12 @@ jobs:
             labctl-images-
 
       # PR: run full sync without upload (tests hooks, no credentials needed)
+      # Skip transform hooks in PR - they require specialized tools (talhelper, sops, docker)
+      # that are only available in the full sync environment
       - name: Sync Images (PR - no upload)
         if: github.event_name == 'pull_request'
         run: |
-          ./labctl images sync --no-upload --cache-dir ~/.cache/labctl
+          ./labctl images sync --no-upload --skip-transform-hooks --cache-dir ~/.cache/labctl
 
       # Push/dispatch: full sync with credentials
       - name: Install SOPS
