@@ -134,7 +134,8 @@ embed_config() {
     # Run the imager to create a new ISO with embedded config
     # The imager creates a fresh ISO from scratch - it doesn't modify the downloaded ISO
     # Mount work dir to /out (imager's default output directory)
-    docker run --rm -t \
+    # Note: --privileged is required for SELinux xattr operations on CI runners
+    docker run --rm -t --privileged \
         -v "${WORK_DIR}:/out" \
         "ghcr.io/siderolabs/imager:${talos_version}" \
         iso \
