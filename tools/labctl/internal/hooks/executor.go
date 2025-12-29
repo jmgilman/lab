@@ -2,9 +2,14 @@
 package hooks
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/GilmanLab/lab/tools/labctl/internal/config"
@@ -78,9 +83,32 @@ func (e *Executor) runHook(ctx context.Context, destination string, hook config.
 		cmd.Dir = hook.WorkDir
 	}
 
+	// Set up output streaming with prefix
+	var outputBuf bytes.Buffer
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("create stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("create stderr pipe: %w", err)
+	}
+
 	start := time.Now()
-	output, err := cmd.CombinedOutput()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start hook: %w", err)
+	}
+
+	// Stream output with prefix
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go streamWithPrefix(&wg, stdout, &outputBuf, "  │ ")
+	go streamWithPrefix(&wg, stderr, &outputBuf, "  │ ")
+	wg.Wait()
+
+	err = cmd.Wait()
 	duration := time.Since(start)
+	output := outputBuf.Bytes()
 
 	// Store result
 	result := &store.HookResult{
@@ -112,4 +140,16 @@ func truncateOutput(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "\n... (truncated)"
+}
+
+// streamWithPrefix reads from r line by line, prints each line with a prefix to stdout,
+// and writes the original content to the buffer for caching.
+func streamWithPrefix(wg *sync.WaitGroup, r io.Reader, buf *bytes.Buffer, prefix string) {
+	defer wg.Done()
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		_, _ = fmt.Fprintln(os.Stdout, prefix+line)
+		_, _ = buf.WriteString(line + "\n")
+	}
 }
