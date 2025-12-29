@@ -1,6 +1,3 @@
-# TODO: Once vyos-build workflow is implemented, add check-success condition
-# to verify the VyOS build before auto-merging image update PRs.
-
 pull_request_rules:
   - name: Auto-merge automated image updates
     conditions:

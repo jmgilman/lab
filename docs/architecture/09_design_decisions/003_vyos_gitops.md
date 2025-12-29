@@ -92,9 +92,9 @@ jobs:
         run: ansible-playbook infrastructure/vyos/ansible/playbooks/deploy.yml --syntax-check
       - name: Validate VyOS config syntax
         run: |
-          # Use vyos-config-validator or docker container
-          docker run --rm -v $PWD/infrastructure/vyos/configs:/config vyos/vyos-build \
-            /opt/vyatta/sbin/vyatta-config-validator /config/vyos.conf
+          # Use vyos container for config validation
+          docker run --rm -v $PWD/infrastructure/network/vyos/configs:/config vyos/vyos:current \
+            /opt/vyatta/sbin/vyatta-config-validator /config/gateway.conf
 ```
 
 ### Workflow: Deploy on Merge
@@ -182,10 +182,10 @@ To validate configuration changes before they reach production, we use [Containe
 
 #### How It Works
 
-1. **Container Image Build**: The vyos-build pipeline produces a squashfs filesystem which is converted to a container image using `sqfs2tar` and a minimal Dockerfile.
+1. **Container Image**: Uses the official VyOS container image from Docker Hub (`vyos/vyos:current`)
 
 2. **Topology Simulation**: Containerlab deploys a test topology with:
-   - VyOS gateway container (same rootfs as production)
+   - VyOS gateway container
    - Simulated network clients for WAN, MGMT, and Platform networks
 
 3. **Test Suite**: pytest with scrapli validates:
@@ -199,11 +199,11 @@ To validate configuration changes before they reach production, we use [Containe
 
 ```
 infrastructure/network/vyos/
-├── Dockerfile.containerlab      # Container build from squashfs
 └── tests/
     ├── topology.clab.yml        # Containerlab topology
     ├── conftest.py              # pytest fixtures
     ├── test_gateway.py          # Test suite
+    ├── render-config-boot.sh    # Generate config.boot with injected SSH key
     └── requirements.txt         # Python dependencies
 ```
 
@@ -221,7 +221,7 @@ The test environment uses simplified interface mapping:
 
 Integration tests run automatically on PRs modifying `infrastructure/network/vyos/**`:
 
-1. `build-container` job builds VyOS container from squashfs
+1. `render-config-boot.sh` generates test config with SSH key injection
 2. `integration-test` job deploys topology and runs pytest suite
 3. Tests must pass before merge
 

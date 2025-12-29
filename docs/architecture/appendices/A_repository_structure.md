@@ -28,9 +28,8 @@ lab/
 ├── .github/
 │   └── workflows/
 │       ├── crossplane-build.yml          # Build Crossplane packages on tag
-│       ├── vyos-build.yml                # Build VyOS image (vyos-build)
-│       ├── vyos-validate.yml             # PR validation for VyOS
-│       └── vyos-deploy.yml               # Deploy VyOS on merge
+│       ├── vyos-validate.yml             # PR validation for VyOS config
+│       └── vyos-deploy.yml               # Deploy VyOS config on merge
 │
 ├── docs/
 │   └── architecture/                     # arc42 documentation
@@ -41,17 +40,17 @@ lab/
 │   ├── network/
 │   │   └── vyos/
 │   │       ├── configs/
-│   │       │   └── gateway.conf
-│   │       ├── vyos-build/
-│   │       │   ├── build-flavors/
-│   │       │   │   └── gateway.toml          # Build flavor with baked-in config
-│   │       │   └── scripts/
-│   │       │       └── generate-flavor.sh    # Injects SSH credentials
-│   │       └── ansible/
-│   │           ├── playbooks/
-│   │           │   └── deploy.yml
-│   │           └── inventory/
-│   │               └── hosts.yml
+│   │       │   └── gateway.conf              # Production VyOS config (loaded manually at install)
+│   │       ├── ansible/
+│   │       │   ├── playbooks/
+│   │       │   │   └── deploy.yml            # Ansible playbook for config updates
+│   │       │   └── inventory/
+│   │       │       └── hosts.yml
+│   │       ├── scripts/
+│   │       │   └── iso-to-container.sh       # Convert ISO to container for testing
+│   │       └── tests/
+│   │           ├── topology.clab.yml         # Containerlab test topology
+│   │           └── test_*.py                 # Integration tests
 │   │
 │   ├── compute/
 │   │   └── talos/
@@ -206,20 +205,7 @@ lab/
     │
     ├── genesis/                          # Runbooks and scripts
     │   ├── README.md                     # Overview and prerequisites
-    │   ├── 01-build-vyos-image.md        # Build VyOS image with vyos-build
-    │   ├── 02-seed-cluster.md            # Create Talos VM on NAS
-    │   ├── 03-deploy-argocd.md           # Manual Argo CD install
-    │   ├── 04-apply-bootstrap.md         # Apply bootstrap Application
-    │   ├── 05-vyos-provisioning.md       # Wait for VyOS to PXE boot
-    │   ├── 06-um760-provisioning.md      # Wait for UM760 to PXE boot
-    │   ├── 07-migrate-to-um760.md        # Drain NAS, migrate to UM760
-    │   ├── 08-deploy-platform.md         # Delete bootstrap, apply full platform
-    │   ├── 09-provision-harvester.md     # Tinkerbell provisions MS-02s
-    │   ├── 10-expand-platform.md         # Add CP-2, CP-3 VMs
     │   └── scripts/
-    │       ├── build-vyos-image.sh       # Runs vyos-build to create VyOS image
-    │       ├── generate-talos-config.sh  # Runs talhelper
-    │       ├── create-seed-vm.sh         # Creates Talos VM on NAS
     │       └── install-argocd.sh         # Helm install Argo CD
     │
     └── recovery/
@@ -563,25 +549,22 @@ infrastructure/
 
 VyOS provides the lab's core networking: routing, firewall, DHCP, and VPN.
 
-**Bootstrap Image (vyos-build):**
-- VyOS is provisioned via Tinkerbell during genesis bootstrap
-- The `vyos-build` toolchain builds a raw disk image with configuration baked in
-- Image includes: VLANs, DHCP relay, BGP peering config, firewall rules, and SSH credentials
-- Built once during initial bootstrap; stored on NAS for Tinkerbell to serve
-- Future configuration changes use the Ansible CI/CD pipeline (not image rebuild)
+**Bootstrap (Manual Install):**
+- VyOS is installed manually from the official Stream ISO during genesis bootstrap
+- Configuration is loaded from `infrastructure/network/vyos/configs/gateway.conf` via USB
+- This is a one-time manual step; VyOS must be operational before the platform cluster can bootstrap
+- See [Appendix B: Bootstrap Procedure](B_bootstrap_procedure.md) for step-by-step instructions
 
-**VyOS Build (`infrastructure/network/vyos/vyos-build/`):**
-- `build-flavors/gateway.toml` - Build flavor defining config.boot content
-- `scripts/generate-flavor.sh` - Injects SSH credentials from SOPS secrets
+**Configuration (`infrastructure/network/vyos/configs/gateway.conf`):**
+- Declarative VyOS configuration file (curly-brace format)
+- Includes: VLANs, DHCP relay, BGP peering config, firewall rules, NAT
 
 **Ongoing Management:**
-- Configuration stored as declarative VyOS config file
-- Deployed via Ansible playbook
-- GitHub Action validates config on PR
-- GitHub Action deploys config on merge to main
+- Configuration changes are deployed via Ansible playbook
+- GitHub Action validates config syntax on PR
+- GitHub Action deploys config on merge to main (via Tailscale)
 
 **Workflow Files:**
-- `.github/workflows/vyos-build.yml` - Builds VyOS image via vyos-build
 - `.github/workflows/vyos-validate.yml` - Validates VyOS config on PR
 - `.github/workflows/vyos-deploy.yml` - Deploys VyOS config on merge
 
@@ -699,27 +682,18 @@ See [Appendix B: Bootstrap Procedure](B_bootstrap_procedure.md) for details.
 
 ### Genesis (`bootstrap/genesis/`)
 
-Step-by-step runbooks and scripts for bootstrapping the lab from scratch.
+Scripts for bootstrapping the lab from scratch. The bootstrap procedure uses an embedded ISO approach - no seed cluster or PXE is required for the initial VyOS and UM760 nodes.
 
-**Runbooks (in order):**
+**Bootstrap Flow:**
+1. Install VyOS manually from Stream ISO, load `gateway.conf` from USB
+2. Boot UM760 from embedded Talos ISO (config baked in via `labctl images sync`)
+3. Deploy Argo CD via `install-argocd.sh`
+4. GitOps takes over from there
 
-1. `01-build-vyos-image.md` - Build VyOS image with vyos-build (bakes in initial config)
-2. `02-seed-cluster.md` - Create Talos VM on NAS
-3. `03-deploy-argocd.md` - Install Argo CD manually via Helm
-4. `04-apply-bootstrap.md` - Apply bootstrap Application pointing to `bootstrap/seed/`
-5. `05-vyos-provisioning.md` - Wait for VyOS to PXE boot (establishes lab networking)
-6. `06-um760-provisioning.md` - Wait for UM760 to PXE boot and join cluster
-7. `07-migrate-to-um760.md` - Drain NAS, migrate workloads to UM760
-8. `08-deploy-platform.md` - Delete bootstrap App, deploy full platform via XRs
-9. `09-provision-harvester.md` - Use Tinkerbell to provision MS-02 nodes with Harvester
-10. `10-expand-platform.md` - Create CP-2/CP-3 VMs on Harvester, expand platform to 3 nodes
+See [Appendix B: Bootstrap Procedure](B_bootstrap_procedure.md) for complete step-by-step instructions.
 
 **Scripts:**
-
-- `build-vyos-image.sh` - Runs vyos-build to create VyOS raw disk image
-- `generate-talos-config.sh` - Runs talhelper to generate machine configs
-- `create-seed-vm.sh` - Creates Talos VM on NAS
-- `install-argocd.sh` - Installs Argo CD via Helm
+- `install-argocd.sh` - Installs Argo CD via Helm on the single-node platform cluster
 
 ### Recovery (`bootstrap/recovery/`)
 

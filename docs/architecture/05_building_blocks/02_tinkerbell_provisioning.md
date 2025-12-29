@@ -9,9 +9,9 @@ Tinkerbell handles **Day Zero** operations — the initial bootstrap of physical
 
 | Target | What Tinkerbell Installs | Result |
 |:---|:---|:---|
-| **VP6630** | VyOS (vyos-build image) | Lab router with VLANs and DHCP relay |
-| **UM760** | Talos Linux | Node joins the Platform Cluster |
 | **MS-02 (x3)** | Harvester OS | Nodes join the Harvester HCI cluster |
+
+> **Note:** The VP6630 (VyOS router) and UM760 (first platform node) are bootstrapped manually before Tinkerbell is available. VyOS is installed from the Stream ISO with configuration loaded from USB. The UM760 boots from a Talos ISO with embedded machine configuration. See [Appendix B: Bootstrap Procedure](../appendices/B_bootstrap_procedure.md) for details.
 
 After initial provisioning, Tinkerbell's role is complete. Ongoing lifecycle management is handled by VyOS CI/CD (for router config), Harvester (for HCI), and CAPI (for Kubernetes clusters).
 

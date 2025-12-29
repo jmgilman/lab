@@ -78,26 +78,26 @@ When the UM760 boots from this ISO:
 
 ## Bootstrap Phases
 
-The bootstrap is divided into 4 phases, spanning 16 discrete steps.
+The bootstrap is divided into 4 phases, spanning 14 discrete steps.
 
 ```
 Phase 1: Direct Boot (UM760)
-  Steps 1-4: Build images, boot UM760 from embedded ISO, deploy Argo CD
-  Duration: ~30 minutes
+  Steps 1-4: Build images, install VyOS, boot UM760 from embedded ISO, deploy Argo CD
+  Duration: ~40 minutes
   Result: Single-node platform cluster running on UM760
 
 Phase 2: Single-Node Platform (UM760)
-  Steps 5-9: Deploy full platform with Crossplane/CAPI/Tinkerbell, provision Harvester
+  Steps 5-7: Deploy full platform with Crossplane/CAPI/Tinkerbell, provision Harvester
   Duration: ~2 hours
   Result: Platform cluster with Crossplane, CAPI, Harvester provisioned
 
 Phase 3: Harvester Online
-  Steps 10-13: Register Harvester, create platform VMs
+  Steps 8-11: Register Harvester, create platform VMs
   Duration: ~30 minutes
   Result: CP-2 and CP-3 join platform cluster
 
 Phase 4: Full Platform (3-Node HA)
-  Steps 14-16: Deploy remaining services, steady state
+  Steps 12-14: Deploy remaining services, steady state
   Duration: ~30 minutes
   Result: Full platform operational, ready for tenant clusters
 ```
@@ -156,20 +156,74 @@ The embedded ISO approach removes the complexity of the previous seed cluster me
 - `talos/talos-1.9.1-metal-amd64.iso` uploaded to S3 (vanilla, for other uses)
 - `vyos/vyos-2025.11-generic-amd64.iso` uploaded to S3
 
-### Step 2: Prepare VyOS Router
+### Step 2: Install and Configure VyOS Router
 
-**Purpose:** Establish lab networking before UM760 bootstrap.
+**Purpose:** Establish lab networking before UM760 bootstrap. VyOS is foundational infrastructure that must be operational before the platform cluster can bootstrap.
+
+**Why Manual Installation:**
+VyOS provides the network connectivity (NAT, DHCP relay, inter-VLAN routing) required for the UM760 to pull container images during platform bootstrap. This creates a dependency: Tinkerbell cannot provision VyOS because Tinkerbell runs on the platform cluster, which needs VyOS to bootstrap. Therefore, VyOS is installed manually from the Stream ISO, similar to how the home router (CCR2004) is configured manually.
+
+**Prerequisites:**
+- VyOS Stream ISO downloaded via `labctl images sync` (stored in S3)
+- USB drive (8GB+) for VyOS installation
+- USB drive or network share with `gateway.conf` configuration file
 
 **Mechanism:**
-- VyOS is pre-configured (either from previous install or manual setup)
-- Required VLANs: 10 (mgmt), 20 (services), 30 (platform), 40 (cluster), 60 (storage)
-- UM760 must have network connectivity on VLAN 30
+1. Download VyOS Stream ISO from S3: `vyos/vyos-2025.11-generic-amd64.iso`
+2. Write ISO to USB drive:
+   ```bash
+   sudo dd if=vyos-2025.11-generic-amd64.iso of=/dev/sdX bs=4M status=progress
+   ```
+3. Copy `infrastructure/network/vyos/configs/gateway.conf` to a second USB drive
+4. Boot VP6630 from VyOS USB drive
+5. Run VyOS installation:
+   ```bash
+   install image
+   ```
+   - Follow prompts (accept defaults for disk, partition, etc.)
+   - Set initial password when prompted
+6. Reboot into installed VyOS
+7. Load production configuration:
+   ```bash
+   configure
+   # Mount USB with config file
+   sudo mount /dev/sdb1 /mnt
+   load /mnt/gateway.conf
+   commit
+   save
+   ```
+8. Add SSH public key for management:
+   ```bash
+   set system login user vyos authentication public-keys admin key '<your-ssh-public-key>'
+   set system login user vyos authentication public-keys admin type ssh-ed25519
+   commit
+   save
+   ```
 
-**Note:** VyOS provisioning via Tinkerbell happens in Phase 2 after the platform cluster is running. For initial bootstrap, VyOS must already be configured.
+**Configuration Source:**
+The production VyOS configuration is maintained in Git at `infrastructure/network/vyos/configs/gateway.conf`. This file contains:
+- Interface configuration (WAN on eth4, trunk on eth5 with all VLANs)
+- Firewall rules (WAN isolation, lab network policies)
+- NAT (masquerade for lab → internet)
+- BGP configuration (for Cilium LoadBalancer VIPs)
+- DHCP relay (forwards DHCP from VLANs 30/40 to Tinkerbell)
+- DNS forwarding
+
+**Ongoing Management:**
+After initial installation, VyOS configuration changes are managed via Ansible + GitHub Actions (see [ADR 003](../09_design_decisions/003_vyos_gitops.md)). The manual installation is a one-time bootstrap step.
+
+**Timeline:**
+- Write ISO to USB: ~2 minutes
+- VyOS installation: ~5 minutes
+- Load configuration: ~2 minutes
+- **Total: ~10 minutes**
 
 **Result:**
-- Lab networking operational
-- UM760 can reach the network
+- Lab networking fully operational
+- All VLANs routable (10, 20, 30, 40, 50, 60)
+- NAT providing internet access for lab networks
+- DHCP relay ready for Tinkerbell
+- UM760 can reach the network and pull container images
 
 ### Step 3: Boot UM760 from Embedded ISO
 
@@ -313,27 +367,7 @@ clusters/platform/apps/tinkerbell/
 - Hardware definitions registered for MS-02 nodes (Harvester cluster)
 - Workflows ready to provision Harvester
 
-### Step 7: Provision VyOS via Tinkerbell
-
-**Purpose:** Provision the VyOS router using Tinkerbell now that the platform is running.
-
-**Mechanism:**
-1. Power on VP6630 with PXE boot enabled
-2. Tinkerbell detects hardware (MAC addresses match Hardware XRs)
-3. Executes VyOS installation workflow:
-   - Downloads VyOS image
-   - Writes VyOS to disk
-   - Applies VyOS config
-   - Reboots into VyOS
-4. VyOS boots with pre-configured lab networking
-
-**Note:** If VyOS was already manually configured in Phase 1, this step can be skipped or used to reprovision with the official workflow.
-
-**Result:**
-- VyOS router provisioned via GitOps
-- Lab networking fully managed
-
-### Step 8: Provision Harvester
+### Step 7: Provision Harvester
 
 **Purpose:** Install Harvester OS on MS-02 nodes to create HCI cluster.
 
@@ -376,7 +410,7 @@ clusters/platform/apps/tinkerbell/
 - Need VMs on Harvester to add CP-2 and CP-3
 - Harvester must be registered with Argo CD before it can be managed
 
-### Step 9: Register Harvester with Argo CD
+### Step 8: Register Harvester with Argo CD
 
 **Purpose:** Allow Argo CD to deploy resources to Harvester cluster.
 
@@ -413,7 +447,7 @@ stringData:
 - Harvester appears in Argo CD cluster list
 - ApplicationSet can now route apps to Harvester
 
-### Step 10: Argo CD Syncs `clusters/harvester/`
+### Step 9: Argo CD Syncs `clusters/harvester/`
 
 **Purpose:** Deploy Harvester network configuration, VM images, and VM definitions.
 
@@ -451,7 +485,7 @@ stringData:
 - Talos VM image available
 - CP-2 and CP-3 VMs created (powered off initially)
 
-### Step 11: CP-2, CP-3 VMs Created
+### Step 10: CP-2, CP-3 VMs Created
 
 **Purpose:** Create VirtualMachine resources on Harvester for platform cluster nodes.
 
@@ -476,7 +510,7 @@ stringData:
 - VMs exist but not yet running
 - Ready for PXE boot
 
-### Step 12: CP-2, CP-3 PXE Boot
+### Step 11: CP-2, CP-3 PXE Boot
 
 **Purpose:** Provision CP-2 and CP-3 with Talos OS and join platform cluster.
 
@@ -512,7 +546,7 @@ stringData:
 - Safe to deploy production workloads
 - Infrastructure complete, ready for tenant clusters
 
-### Step 13: Deploy Remaining Platform Services
+### Step 12: Deploy Remaining Platform Services
 
 **Purpose:** Activate all platform capabilities (observability, policy, etc.).
 
@@ -543,7 +577,7 @@ stringData:
 - CAPI ready to provision tenant clusters
 - Platform services fully deployed
 
-### Step 14: Steady State
+### Step 13: Steady State
 
 **Purpose:** Validate that all platform components are healthy and operational.
 
@@ -566,7 +600,7 @@ stringData:
 - All services healthy
 - Ready for tenant clusters
 
-### Step 15: Tenant Clusters
+### Step 14: Tenant Clusters
 
 **Purpose:** Begin provisioning application workload clusters.
 
@@ -631,7 +665,9 @@ spec:
 │           → Runs transform hook to embed machine config                 │
 │           → Uploads embedded ISO to S3                                  │
 │           ↓                                                             │
-│  Step 2: Prepare VyOS Router (manual or pre-existing)                  │
+│  Step 2: Install and Configure VyOS Router                             │
+│           → Boot from VyOS Stream ISO                                   │
+│           → Load gateway.conf from USB                                  │
 │           ↓                                                             │
 │  Step 3: Boot UM760 from Embedded ISO                                  │
 │           → Talos reads embedded config                                 │
@@ -651,9 +687,7 @@ spec:
 │           ↓                                                             │
 │  Step 6: Crossplane + Tinkerbell (XRD-based)                           │
 │           ↓                                                             │
-│  Step 7: Provision VyOS via Tinkerbell (optional)                      │
-│           ↓                                                             │
-│  Step 8: Provision Harvester (Tinkerbell PXE boots MS-02 nodes)        │
+│  Step 7: Provision Harvester (Tinkerbell PXE boots MS-02 nodes)        │
 │           → 3-node Harvester cluster online (~1.5 hours)                │
 │                                                                         │
 │  Result: Platform cluster (1 node), Harvester cluster (3 nodes)        │
@@ -662,16 +696,16 @@ spec:
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                      PHASE 3: HARVESTER ONLINE                          │
 │                                                                         │
-│  Step 9: Register Harvester with Argo CD (cluster Secret)              │
+│  Step 8: Register Harvester with Argo CD (cluster Secret)              │
 │           ↓                                                             │
-│  Step 10: Argo CD Syncs clusters/harvester/                            │
+│  Step 9: Argo CD Syncs clusters/harvester/                             │
 │           → Networks (VLANs 10, 30, 40, 60)                             │
 │           → Images (Talos 1.9)                                          │
 │           → VMs (CP-2, CP-3)                                            │
 │           ↓                                                             │
-│  Step 11: CP-2, CP-3 VMs Created (powered off)                         │
+│  Step 10: CP-2, CP-3 VMs Created (powered off)                         │
 │           ↓                                                             │
-│  Step 12: CP-2, CP-3 PXE Boot → Talos installed → Join cluster         │
+│  Step 11: CP-2, CP-3 PXE Boot → Talos installed → Join cluster         │
 │                                                                         │
 │  Result: Platform cluster (3 nodes HA), Harvester cluster (3 nodes)    │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -679,13 +713,13 @@ spec:
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                  PHASE 4: FULL PLATFORM (3-NODE HA)                     │
 │                                                                         │
-│  Step 13: Deploy Remaining Platform Services                           │
+│  Step 12: Deploy Remaining Platform Services                           │
 │           → Observability (Prometheus, Grafana, Loki)                   │
 │           → CAPI providers (Harvester, Talos)                           │
 │           ↓                                                             │
-│  Step 14: Steady State - Validate all components healthy               │
+│  Step 13: Steady State - Validate all components healthy               │
 │           ↓                                                             │
-│  Step 15: Tenant Clusters - Provision via TenantCluster XR             │
+│  Step 14: Tenant Clusters - Provision via TenantCluster XR             │
 │           → media cluster (3 CP + 3 workers)                            │
 │           → dev cluster (1 CP + 2 workers)                              │
 │           → prod cluster (3 CP + 5 workers)                             │
@@ -701,20 +735,19 @@ spec:
 | Phase | Step | Name | Duration | Purpose |
 |:------|:-----|:-----|:---------|:--------|
 | 1 | 1 | Sync Images with labctl | 15 min | Build embedded ISO via transform hook |
-| 1 | 2 | Prepare VyOS Router | 5 min | Ensure lab networking is ready |
+| 1 | 2 | Install and Configure VyOS Router | 10 min | Boot from ISO, load gateway.conf |
 | 1 | 3 | Boot UM760 from Embedded ISO | 10 min | Bootstrap single-node platform cluster |
 | 1 | 4 | Deploy Argo CD | 5 min | Install GitOps controller |
 | 2 | 5 | Apply Platform Configuration | 10 min | Deploy CoreServices and PlatformServices XRs |
 | 2 | 6 | Crossplane + Tinkerbell (XRD) | 10 min | Deploy Tinkerbell via XRs |
-| 2 | 7 | Provision VyOS via Tinkerbell | 6 min | (Optional) Reprovision VyOS via GitOps |
-| 2 | 8 | Provision Harvester | 90 min | PXE boot MS-02 nodes with Harvester OS |
-| 3 | 9 | Register Harvester with Argo CD | 5 min | Create cluster Secret for Harvester |
-| 3 | 10 | Argo CD Syncs clusters/harvester/ | 5 min | Deploy networks, images, VM definitions |
-| 3 | 11 | CP-2, CP-3 VMs Created | 5 min | Harvester creates VM resources |
-| 3 | 12 | CP-2, CP-3 PXE Boot | 20 min | Provision VMs with Talos, join platform cluster |
-| 4 | 13 | Deploy Remaining Platform Services | 15 min | Observability, CAPI providers |
-| 4 | 14 | Steady State | 10 min | Validate all components healthy |
-| 4 | 15 | Tenant Clusters | 30 min/cluster | Provision application workload clusters |
+| 2 | 7 | Provision Harvester | 90 min | PXE boot MS-02 nodes with Harvester OS |
+| 3 | 8 | Register Harvester with Argo CD | 5 min | Create cluster Secret for Harvester |
+| 3 | 9 | Argo CD Syncs clusters/harvester/ | 5 min | Deploy networks, images, VM definitions |
+| 3 | 10 | CP-2, CP-3 VMs Created | 5 min | Harvester creates VM resources |
+| 3 | 11 | CP-2, CP-3 PXE Boot | 20 min | Provision VMs with Talos, join platform cluster |
+| 4 | 12 | Deploy Remaining Platform Services | 15 min | Observability, CAPI providers |
+| 4 | 13 | Steady State | 10 min | Validate all components healthy |
+| 4 | 14 | Tenant Clusters | 30 min/cluster | Provision application workload clusters |
 
 **Total Duration (Phases 1-3):** ~3 hours
 **Phase 4:** Ongoing (as tenant clusters are added)
@@ -744,15 +777,13 @@ Before beginning the bootstrap, ensure the following are in place:
 | 40 | 10.10.40.0/24 | Tenant clusters | DHCP (Tinkerbell) |
 | 60 | 10.10.60.0/24 | Storage replication | Static IPs |
 
-**Note:** VyOS must be configured before UM760 bootstrap to provide network connectivity. It can be:
-- Manually configured initially, then reprovisioned via Tinkerbell in Phase 2
-- Pre-configured from a previous installation
+**Note:** VyOS must be installed and configured before UM760 bootstrap to provide network connectivity. See Step 2 for the manual installation procedure.
 
 ### Software
 
 | Tool | Version | Purpose |
 |:-----|:--------|:--------|
-| Docker | v24.0.0+ | Run Talos imager and vyos-build containers |
+| Docker | v24.0.0+ | Run Talos imager container |
 | labctl | latest | Sync images with transform hooks |
 | talhelper | v3.0.0+ | Generate Talos machine configs |
 | SOPS | v3.9.0+ | Encrypt Talos secrets |
