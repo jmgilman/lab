@@ -128,18 +128,19 @@ embed_config() {
     echo "Creating ISO with embedded configuration..."
     echo "  Talos version: ${talos_version}"
 
-    # Copy config to a location the imager can access
+    # Copy config to container-accessible location
     cp "${config_file}" "${WORK_DIR}/machine.yaml"
 
     # Run the imager to create a new ISO with embedded config
     # The imager creates a fresh ISO from scratch - it doesn't modify the downloaded ISO
+    # Use --meta 0x0a to embed the machine configuration (0x0a = META_MACHINE_CONFIG)
     # Mount work dir to /out (imager's default output directory)
-    docker run --rm -t \
+    # Note: Using bash -c to read the file inside the container avoids shell escaping issues
+    docker run --rm \
         -v "${WORK_DIR}:/out" \
+        --entrypoint /bin/sh \
         "ghcr.io/siderolabs/imager:${talos_version}" \
-        iso \
-        --arch amd64 \
-        --embedded-config-path=/out/machine.yaml
+        -c 'imager iso --arch amd64 --meta "0x0a=$(cat /out/machine.yaml)"'
 
     # Find the generated ISO (imager outputs to /out/metal-amd64.iso)
     local output_iso="${WORK_DIR}/metal-amd64.iso"
