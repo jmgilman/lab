@@ -38,10 +38,10 @@ class TestSourceNat:
         # Give tcpdump a moment to start
         time.sleep(1)
 
-        # Send pings from mgmt-client to wan-client
+        # Send pings from mgmt-client to wan-client (transit IP)
         subprocess.run(
             ["docker", "exec", mgmt_client, "ping", "-c", "3", "-W", "2",
-             test_topology.wan_client_ip],
+             test_topology.wan_client_transit_ip],
             capture_output=True,
             timeout=10,
         )
@@ -73,12 +73,12 @@ class TestSourceNat:
         # If ping succeeds, it means:
         # 1. Outbound packet was NAT'd (source changed to gateway WAN IP)
         # 2. Return packet was correctly de-NAT'd back to original source
-        assert ping("mgmt-client", test_topology.wan_client_ip), (
+        assert ping("mgmt-client", test_topology.wan_client_transit_ip), (
             "NAT connection tracking should allow bidirectional traffic"
         )
 
     def test_multiple_vlans_share_nat(self, ping, test_topology):
-        """All VLAN clients can use NAT to reach WAN."""
+        """All VLAN clients can use NAT to reach WAN via transit link."""
         clients = [
             "mgmt-client",
             "prov-client",
@@ -88,6 +88,6 @@ class TestSourceNat:
             "storage-client",
         ]
         for client in clients:
-            assert ping(client, test_topology.wan_client_ip), (
+            assert ping(client, test_topology.wan_client_transit_ip), (
                 f"{client} should be able to reach WAN via NAT"
             )

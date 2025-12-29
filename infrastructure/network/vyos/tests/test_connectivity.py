@@ -56,17 +56,17 @@ class TestInterVlanRouting:
 
 
 class TestWanConnectivity:
-    """Test connectivity between lab networks and WAN."""
+    """Test connectivity between lab networks and WAN via transit link."""
 
-    def test_lab_client_reaches_wan_client(self, ping, test_topology):
-        """Lab client can reach WAN client (via NAT)."""
-        assert ping("mgmt-client", test_topology.wan_client_ip), (
-            "mgmt-client cannot reach wan-client (NAT or routing failure)"
+    def test_lab_client_reaches_wan(self, ping, test_topology):
+        """Lab client can reach WAN transit peer (via NAT)."""
+        assert ping("mgmt-client", test_topology.wan_client_transit_ip), (
+            "mgmt-client cannot reach WAN transit peer (NAT or routing failure)"
         )
 
     def test_all_vlan_clients_reach_wan(self, ping, vlan_clients, test_topology):
-        """All VLAN clients can reach the WAN network."""
+        """All VLAN clients can reach the WAN network via transit link."""
         for client in vlan_clients:
-            assert ping(client, test_topology.wan_client_ip), (
-                f"{client} cannot reach wan-client"
+            assert ping(client, test_topology.wan_client_transit_ip), (
+                f"{client} cannot reach WAN transit peer"
             )

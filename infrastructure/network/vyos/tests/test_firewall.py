@@ -15,7 +15,8 @@ class TestWanToLabFirewall:
         """
         WAN client (in HOME_NETWORK) can ping lab clients.
 
-        The WAN_TO_LAB firewall allows traffic from HOME_NETWORK (192.168.0.0/24).
+        The WAN_TO_LAB firewall allows traffic from HOME_NETWORK (192.168.1.0/24).
+        The wan-client has a secondary IP (192.168.1.100) to simulate home network traffic.
         """
         assert ping("wan-client", test_topology.mgmt_client_ip), (
             "wan-client (HOME_NETWORK) should be able to ping mgmt-client"
@@ -38,9 +39,9 @@ class TestLabToWanFirewall:
     """Test firewall rules for traffic from lab to WAN."""
 
     def test_lab_can_reach_wan(self, ping, test_topology):
-        """Lab clients can reach the WAN network."""
-        assert ping("mgmt-client", test_topology.wan_client_ip), (
-            "Lab client should be able to reach WAN"
+        """Lab clients can reach the WAN transit peer."""
+        assert ping("mgmt-client", test_topology.wan_client_transit_ip), (
+            "Lab client should be able to reach WAN transit peer"
         )
 
     def test_lab_can_reach_wan_gateway(self, ping, test_topology):
@@ -100,6 +101,6 @@ class TestFirewallIsolation:
         # This is implicitly tested by test_lab_can_reach_wan, but let's
         # make it explicit: if the lab client can ping WAN and get responses,
         # then established/related traffic is working.
-        assert ping("mgmt-client", test_topology.wan_client_ip), (
+        assert ping("mgmt-client", test_topology.wan_client_transit_ip), (
             "Stateful firewall should allow return traffic"
         )

@@ -15,13 +15,15 @@ This section describes the physical and virtual infrastructure topology — how 
                                                    │
                                     ┌──────────────▼──────────────┐
                                     │     CCR2004 (Home Router)   │
-                                    │       192.168.0.1           │
+                                    │  Home LAN: 192.168.1.1      │
+                                    │  Transit:  10.0.0.1/30      │
                                     └──────────────┬──────────────┘
-                                                   │ Transit Link
+                                                   │ Transit Link (10.0.0.0/30)
                                     ┌──────────────▼──────────────┐
                                     │     VP6630 (VyOS Gateway)   │
                                     │  Lab Router / Firewall      │
-                                    │  10.10.x.1 (all VLANs)      │
+                                    │  Transit:  10.0.0.2/30      │
+                                    │  Lab VLANs: 10.10.x.1       │
                                     └──┬─────────────────────┬────┘
                                        │                     │
                           2.5G (OOB)   │                     │  Trunk to Switch

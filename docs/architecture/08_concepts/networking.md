@@ -93,21 +93,29 @@ Each VLAN follows a consistent addressing convention:
 
 ### Home ↔ Lab Connectivity
 
-The lab is logically isolated from the home network but accessible via a **Transit Link**:
+The lab is logically isolated from the home network but accessible via a **dedicated /30 Transit Link**:
+
+| Component | Address | Role |
+|:---|:---|:---|
+| **CCR2004** | `10.0.0.1/30` | Home router (transit side) |
+| **VP6630** | `10.0.0.2/30` | Lab gateway (transit side) |
+| **Home Network** | `192.168.1.0/24` | Home LAN (routed via transit) |
 
 | Direction | Mechanism | Policy |
 |:---|:---|:---|
-| **Home → Lab** | Static route on CCR2004 | `10.10.0.0/16` → Lab Gateway |
-| **Lab → Home** | Blocked by firewall | Stateful return traffic only |
+| **Home → Lab** | Static route on CCR2004 | `10.10.0.0/16` via `10.0.0.2` |
+| **Lab → Home** | Static route on VP6630 + Firewall | `192.168.1.0/24` via `10.0.0.1` (HOME_NETWORK group allowed) |
+| **Lab → Internet** | NAT masquerade via VP6630 | Outbound via transit link |
 
 ```
-┌─────────────────┐         ┌─────────────────┐
-│   Home Network  │         │   Lab Network   │
-│  192.168.0.0/24 │◀───────▶│   10.10.0.0/16  │
-└────────┬────────┘         └────────┬────────┘
-         │                           │
-    CCR2004                      VP6630
-   (Static Route)             (Firewall)
+┌─────────────────┐                           ┌─────────────────┐
+│   Home Network  │                           │   Lab Network   │
+│  192.168.1.0/24 │                           │   10.10.0.0/16  │
+└────────┬────────┘                           └────────┬────────┘
+         │                                             │
+    CCR2004                                        VP6630
+    10.0.0.1 ◀──── Transit Link (10.0.0.0/30) ────▶ 10.0.0.2
+   (Static Route)                               (NAT/Firewall)
 ```
 
 ### Firewall Policy
