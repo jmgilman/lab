@@ -3,7 +3,7 @@
 # Run `talhelper genconfig` to regenerate
 ---
 clusterName: platform
-talosVersion: v1.9.1
+talosVersion: v1.12.0
 kubernetesVersion: v1.32.0
 endpoint: https://10.10.30.10:6443
 
