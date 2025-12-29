@@ -272,6 +272,86 @@ spec:
 `,
 			wantErr: "updateFile.path is required",
 		},
+		{
+			name: "valid manifest with transform hooks",
+			yaml: `apiVersion: images.lab.gilman.io/v1alpha1
+kind: ImageManifest
+metadata:
+  name: lab-images
+spec:
+  images:
+    - name: talos-iso
+      source:
+        url: https://factory.talos.dev/image/talos-amd64.iso
+        checksum: sha256:abc123
+      destination: talos/talos-amd64.iso
+      hooks:
+        transform:
+          - name: embed-config
+            command: ./scripts/embed-config.sh
+            args: ["--config", "machine.yaml"]
+            timeout: 10m
+`,
+		},
+		{
+			name: "invalid transform hook missing name",
+			yaml: `apiVersion: images.lab.gilman.io/v1alpha1
+kind: ImageManifest
+metadata:
+  name: lab-images
+spec:
+  images:
+    - name: test-image
+      source:
+        url: https://example.com/image.iso
+        checksum: sha256:abc123
+      destination: images/image.iso
+      hooks:
+        transform:
+          - command: ./script.sh
+`,
+			wantErr: "hooks.transform[0]: name is required",
+		},
+		{
+			name: "invalid transform hook missing command",
+			yaml: `apiVersion: images.lab.gilman.io/v1alpha1
+kind: ImageManifest
+metadata:
+  name: lab-images
+spec:
+  images:
+    - name: test-image
+      source:
+        url: https://example.com/image.iso
+        checksum: sha256:abc123
+      destination: images/image.iso
+      hooks:
+        transform:
+          - name: my-hook
+`,
+			wantErr: "hooks.transform[0]: command is required",
+		},
+		{
+			name: "invalid transform hook bad timeout",
+			yaml: `apiVersion: images.lab.gilman.io/v1alpha1
+kind: ImageManifest
+metadata:
+  name: lab-images
+spec:
+  images:
+    - name: test-image
+      source:
+        url: https://example.com/image.iso
+        checksum: sha256:abc123
+      destination: images/image.iso
+      hooks:
+        transform:
+          - name: my-hook
+            command: ./script.sh
+            timeout: invalid
+`,
+			wantErr: "hooks.transform[0]: invalid timeout",
+		},
 	}
 
 	for _, tt := range tests {

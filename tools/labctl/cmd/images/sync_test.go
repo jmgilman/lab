@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/GilmanLab/lab/tools/labctl/internal/config"
+	"github.com/GilmanLab/lab/tools/labctl/internal/hooks"
 	"github.com/GilmanLab/lab/tools/labctl/internal/store"
 )
 
@@ -682,6 +683,71 @@ func TestSyncImageWithHTTP(t *testing.T) {
 		assert.False(t, changed)
 		assert.False(t, uploadCalled, "Upload should not be called in no-upload mode")
 		assert.False(t, metadataCalled, "PutMetadata should not be called in no-upload mode")
+	})
+
+	t.Run("transform hook modifies uploaded content", func(t *testing.T) {
+		// Create test content
+		originalContent := []byte("original content")
+		checksum := computeChecksum(originalContent)
+
+		// Mock HTTP server
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(originalContent)
+		}))
+		defer server.Close()
+
+		// Track uploaded content
+		var uploadedData []byte
+
+		client := &mockStoreClient{
+			checksumMatchFunc: func(_ context.Context, _ string, _ string) (bool, error) {
+				return false, nil
+			},
+			uploadFunc: func(_ context.Context, _ string, body io.Reader, _ int64) error {
+				var err error
+				uploadedData, err = io.ReadAll(body)
+				return err
+			},
+			putMetadataFunc: func(_ context.Context, _ string, _ *store.ImageMetadata) error {
+				return nil
+			},
+		}
+
+		// Create a transform script in a temp dir
+		dir := t.TempDir()
+		scriptFile := filepath.Join(dir, "transform.sh")
+		scriptContent := "#!/bin/sh\necho ' TRANSFORMED' >> \"$1\"\n"
+		err := os.WriteFile(scriptFile, []byte(scriptContent), 0o755) //nolint:gosec // G306: Script needs execute permission
+		require.NoError(t, err)
+
+		// Create a hook executor for testing
+		hookExecutor := hooks.NewExecutor(nil, "")
+
+		img := config.Image{
+			Name:        "test-image",
+			Destination: "test/test.iso",
+			Source: config.Source{
+				URL:      server.URL,
+				Checksum: checksum,
+			},
+			Hooks: &config.Hooks{
+				Transform: []config.Hook{
+					{
+						Name:    "append-transform",
+						Command: scriptFile,
+					},
+				},
+			},
+		}
+
+		changed, err := syncImageWithHTTP(context.Background(), client, server.Client(), hookExecutor, nil, img, false, false, false)
+
+		require.NoError(t, err)
+		assert.False(t, changed)
+
+		// Verify that the uploaded content was transformed
+		assert.Equal(t, "original content TRANSFORMED\n", string(uploadedData))
 	})
 }
 
