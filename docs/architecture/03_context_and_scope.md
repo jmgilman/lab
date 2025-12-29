@@ -39,7 +39,7 @@ C4Context
 
 | Interface | Type | Description |
 | :--- | :--- | :--- |
-| **Home -> Lab (Data)** | **IPv4 Routing** | Traffic from Home Workstations (192.168.0.0/24) is routed via the Transit Link to Lab VIPs (10.10.x.x). **Firewalled ALLOW**. |
+| **Home -> Lab (Data)** | **IPv4 Routing** | Traffic from Home Workstations (192.168.1.0/24) is routed via the Transit Link (10.0.0.0/30) to Lab VIPs (10.10.x.x). **Firewalled ALLOW**. |
 | **Lab -> Home (Data)** | **IPv4 Routing** | Lab nodes attempting to initiate connections to Home devices. **Firewalled DROP** (except specific replies). |
 | **Lab -> Internet** | **NAT** | Lab nodes access the internet via the Gateway (VP6630) which performs NAT. |
 | **GitOps Sync** | **HTTPS** | The Lab (Argo CD) polls GitHub repositories to synchronize state. |

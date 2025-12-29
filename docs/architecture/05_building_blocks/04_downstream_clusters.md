@@ -64,17 +64,17 @@ Downstream clusters operate on **VLAN 40 (LAB_CLUSTER)**:
 Services of type `LoadBalancer` receive VIPs from VLAN 50 via BGP:
 
 ```
-┌─────────────────┐         ┌─────────────────┐
-│  Home Network   │         │     VyOS        │
-│  192.168.0.x    │◀───────▶│  (BGP Router)   │
-└─────────────────┘         └────────┬────────┘
-                                     │ ECMP Routes
-                                     ▼
-                            ┌─────────────────┐
-                            │ Downstream      │
-                            │ Cluster Nodes   │
-                            │ (Cilium BGP)    │
-                            └─────────────────┘
+┌─────────────────┐    Transit    ┌─────────────────┐
+│  Home Network   │◀────Link─────▶│     VyOS        │
+│  192.168.1.0/24 │   10.0.0.0/30 │  (BGP Router)   │
+└─────────────────┘               └────────┬────────┘
+                                           │ ECMP Routes
+                                           ▼
+                                  ┌─────────────────┐
+                                  │ Downstream      │
+                                  │ Cluster Nodes   │
+                                  │ (Cilium BGP)    │
+                                  └─────────────────┘
 ```
 
 ## Provisioning Workflow
