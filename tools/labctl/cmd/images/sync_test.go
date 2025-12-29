@@ -225,7 +225,7 @@ func TestSyncImage(t *testing.T) {
 			},
 		}
 
-		changed, err := syncImage(context.Background(), client, nil, img, false, false, false)
+		changed, err := syncImage(context.Background(), client, nil, nil, img, false, false, false)
 
 		require.NoError(t, err)
 		assert.False(t, changed)
@@ -244,7 +244,7 @@ func TestSyncImage(t *testing.T) {
 			},
 		}
 
-		changed, err := syncImage(context.Background(), client, nil, img, true, false, false)
+		changed, err := syncImage(context.Background(), client, nil, nil, img, true, false, false)
 
 		require.NoError(t, err)
 		assert.False(t, changed)
@@ -273,7 +273,7 @@ func TestSyncImage(t *testing.T) {
 
 		// With force=true and dryRun=true, it should show what would be done
 		// without checking checksum
-		_, err := syncImage(context.Background(), client, nil, img, true, true, false)
+		_, err := syncImage(context.Background(), client, nil, nil, img, true, true, false)
 
 		require.NoError(t, err)
 		assert.False(t, checksumChecked) // Should not check checksum with force
@@ -295,7 +295,7 @@ func TestSyncImage(t *testing.T) {
 			},
 		}
 
-		_, err := syncImage(context.Background(), client, nil, img, false, false, false)
+		_, err := syncImage(context.Background(), client, nil, nil, img, false, false, false)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "check existing image")
@@ -321,7 +321,7 @@ func TestSyncImage(t *testing.T) {
 
 		// With noUpload=true, should skip checksum check (client is nil for noUpload)
 		// and also skip upload - this test verifies the skip behavior
-		changed, err := syncImage(context.Background(), client, nil, img, true, false, false)
+		changed, err := syncImage(context.Background(), client, nil, nil, img, true, false, false)
 
 		require.NoError(t, err)
 		assert.False(t, changed)
@@ -379,7 +379,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 			},
 		}
 
-		changed, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, false)
+		changed, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, false)
 
 		require.NoError(t, err)
 		assert.False(t, changed) // No updateFile, so no file changes
@@ -449,7 +449,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 			},
 		}
 
-		changed, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, false)
+		changed, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, false)
 
 		require.NoError(t, err)
 		assert.False(t, changed)
@@ -484,7 +484,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 			},
 		}
 
-		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, false)
+		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, false)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "download")
@@ -514,7 +514,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 			},
 		}
 
-		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, false)
+		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, false)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "source checksum verification")
@@ -548,7 +548,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 			},
 		}
 
-		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, false)
+		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, false)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "upload")
@@ -585,7 +585,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 			},
 		}
 
-		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, false)
+		_, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, false)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "write metadata")
@@ -628,7 +628,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 			},
 		}
 
-		_, err = syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, false)
+		_, err = syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, false)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "decompressed checksum verification")
@@ -676,7 +676,7 @@ func TestSyncImageWithHTTP(t *testing.T) {
 		}
 
 		// noUpload=true should download, verify, but skip upload
-		changed, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, img, false, false, true)
+		changed, err := syncImageWithHTTP(context.Background(), client, server.Client(), nil, nil, img, false, false, true)
 
 		require.NoError(t, err)
 		assert.False(t, changed)

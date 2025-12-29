@@ -18,6 +18,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKERFILE="${SCRIPT_DIR}/../Dockerfile.containerlab"
 
+# Cache directory for rootfs.tar (set by labctl via LABCTL_HOOK_CACHE)
+CACHE_DIR="${LABCTL_HOOK_CACHE:-}"
+
 usage() {
     echo "Usage: $0 <iso-path> [image-name:tag]"
     echo ""
@@ -66,21 +69,43 @@ trap cleanup EXIT
 
 mkdir -p "${WORK_DIR}"
 
-echo "Extracting squashfs from ISO..."
-7z x -o"${WORK_DIR}" "${ISO_PATH}" "live/filesystem.squashfs" -y >/dev/null
+# Check for cached rootfs.tar
+CACHED_ROOTFS=""
+if [[ -n "${CACHE_DIR}" ]]; then
+    # Use first 12 chars of ISO sha256 as cache key
+    ISO_HASH=$(sha256sum "${ISO_PATH}" | cut -d' ' -f1 | head -c 12)
+    CACHED_ROOTFS="${CACHE_DIR}/rootfs-${ISO_HASH}.tar"
 
-SQUASHFS="${WORK_DIR}/live/filesystem.squashfs"
-if [[ ! -f "${SQUASHFS}" ]]; then
-    echo "ERROR: filesystem.squashfs not found in ISO"
-    echo "Contents of ${WORK_DIR}:"
-    find "${WORK_DIR}" -type f
-    exit 1
+    if [[ -f "${CACHED_ROOTFS}" ]]; then
+        echo "Using cached rootfs.tar: ${CACHED_ROOTFS}"
+        ROOTFS_TAR="${CACHED_ROOTFS}"
+    fi
 fi
 
-echo "Converting squashfs to rootfs.tar..."
-ROOTFS_TAR="${WORK_DIR}/rootfs.tar"
-sqfs2tar "${SQUASHFS}" > "${ROOTFS_TAR}"
-echo "rootfs.tar size: $(ls -lh "${ROOTFS_TAR}" | awk '{print $5}')"
+# Extract and convert if not cached
+if [[ -z "${ROOTFS_TAR:-}" ]]; then
+    echo "Extracting squashfs from ISO..."
+    7z x -o"${WORK_DIR}" "${ISO_PATH}" "live/filesystem.squashfs" -y >/dev/null
+
+    SQUASHFS="${WORK_DIR}/live/filesystem.squashfs"
+    if [[ ! -f "${SQUASHFS}" ]]; then
+        echo "ERROR: filesystem.squashfs not found in ISO"
+        echo "Contents of ${WORK_DIR}:"
+        find "${WORK_DIR}" -type f
+        exit 1
+    fi
+
+    echo "Converting squashfs to rootfs.tar..."
+    ROOTFS_TAR="${WORK_DIR}/rootfs.tar"
+    sqfs2tar "${SQUASHFS}" > "${ROOTFS_TAR}"
+    echo "rootfs.tar size: $(ls -lh "${ROOTFS_TAR}" | awk '{print $5}')"
+
+    # Cache the rootfs.tar for future use
+    if [[ -n "${CACHED_ROOTFS}" ]]; then
+        echo "Caching rootfs.tar to: ${CACHED_ROOTFS}"
+        cp "${ROOTFS_TAR}" "${CACHED_ROOTFS}"
+    fi
+fi
 
 echo "Building container image: ${IMAGE_TAG}..."
 BUILD_CONTEXT="${WORK_DIR}/build"

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -25,13 +26,15 @@ const (
 
 // Executor runs hooks and manages result caching.
 type Executor struct {
-	client store.Client
+	client   store.Client
+	cacheDir string
 }
 
 // NewExecutor creates a new hook executor.
-// If client is nil, caching is disabled.
-func NewExecutor(client store.Client) *Executor {
-	return &Executor{client: client}
+// If client is nil, S3 result caching is disabled.
+// If cacheDir is non-empty, it will be passed to hooks as LABCTL_HOOK_CACHE.
+func NewExecutor(client store.Client, cacheDir string) *Executor {
+	return &Executor{client: client, cacheDir: cacheDir}
 }
 
 // RunPreUploadHooks executes all pre-upload hooks for an image.
@@ -81,6 +84,18 @@ func (e *Executor) runHook(ctx context.Context, destination string, hook config.
 	cmd := exec.CommandContext(hookCtx, hook.Command, args...) //nolint:gosec // G204: Command is from trusted manifest
 	if hook.WorkDir != "" {
 		cmd.Dir = hook.WorkDir
+	}
+
+	// Set up hook cache directory if configured
+	if e.cacheDir != "" {
+		// Sanitize hook name for filesystem safety
+		safeName := sanitizeHookName(hook.Name)
+		hookCacheDir := filepath.Join(e.cacheDir, "hooks", safeName)
+		if err := os.MkdirAll(hookCacheDir, 0o750); err != nil {
+			fmt.Printf("  Warning: failed to create hook cache dir: %v\n", err)
+		} else {
+			cmd.Env = append(os.Environ(), "LABCTL_HOOK_CACHE="+hookCacheDir)
+		}
 	}
 
 	// Set up output streaming with prefix
@@ -152,4 +167,18 @@ func streamWithPrefix(wg *sync.WaitGroup, r io.Reader, buf *bytes.Buffer, prefix
 		_, _ = fmt.Fprintln(os.Stdout, prefix+line)
 		_, _ = buf.WriteString(line + "\n")
 	}
+}
+
+// sanitizeHookName makes a hook name safe for use as a directory name.
+func sanitizeHookName(name string) string {
+	var result []byte
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+			result = append(result, c)
+		} else {
+			result = append(result, '_')
+		}
+	}
+	return string(result)
 }

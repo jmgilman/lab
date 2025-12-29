@@ -89,11 +89,20 @@ jobs:
         run: |
           pip install -r infrastructure/network/vyos/tests/requirements.txt
 
+      # Cache for downloaded ISOs and hook artifacts (rootfs.tar)
+      - name: Setup labctl cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/labctl
+          key: labctl-images-${{ hashFiles('images/images.yaml') }}
+          restore-keys: |
+            labctl-images-
+
       # PR: run full sync without upload (tests hooks, no credentials needed)
       - name: Sync Images (PR - no upload)
         if: github.event_name == 'pull_request'
         run: |
-          ./labctl images sync --no-upload
+          ./labctl images sync --no-upload --cache-dir ~/.cache/labctl
 
       # Push/dispatch: full sync with credentials
       - name: Install SOPS
@@ -120,6 +129,7 @@ jobs:
           ./labctl images sync \
             --credentials images/e2.sops.yaml \
             --sops-age-key-file /tmp/age-key.txt \
+            --cache-dir ~/.cache/labctl \
             $FLAGS
 
       - name: Create PR if files changed
