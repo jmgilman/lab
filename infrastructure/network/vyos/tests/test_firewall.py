@@ -15,7 +15,8 @@ class TestWanToLabFirewall:
         """
         WAN client (in HOME_NETWORK) can ping lab clients.
 
-        The WAN_TO_LAB firewall allows traffic from HOME_NETWORK (192.168.0.0/24).
+        The WAN_TO_LAB firewall allows traffic from HOME_NETWORK (192.168.1.0/24).
+        The wan-client has a secondary IP (192.168.1.100) to simulate home network traffic.
         """
         assert ping("wan-client", test_topology.mgmt_client_ip), (
             "wan-client (HOME_NETWORK) should be able to ping mgmt-client"

@@ -49,12 +49,14 @@ def normalize_output(output: str) -> str:
 class TestTopology:
     """Expected values for the Containerlab test topology."""
 
-    # WAN interface
+    # WAN interface (transit link to CCR2004)
     wan_iface: str = "eth4"
-    wan_ip: str = "192.168.0.2"
-    wan_cidr: str = "192.168.0.2/24"
-    wan_gateway: str = "192.168.0.1"
-    wan_client_ip: str = "192.168.0.100"
+    wan_ip: str = "10.0.0.2"
+    wan_cidr: str = "10.0.0.2/30"
+    wan_gateway: str = "10.0.0.1"
+    # wan-client simulates both CCR2004 (10.0.0.1) and home network (192.168.1.100)
+    wan_client_transit_ip: str = "10.0.0.1"
+    wan_client_ip: str = "192.168.1.100"
 
     # Trunk interface
     trunk_iface: str = "eth5"
@@ -85,7 +87,8 @@ class TestTopology:
     storage_client_ip: str = "10.10.60.100"
 
     # Network ranges
-    home_cidr: str = "192.168.0.0/24"
+    transit_cidr: str = "10.0.0.0/30"
+    home_cidr: str = "192.168.1.0/24"
     lab_cidr: str = "10.10.0.0/16"
 
     # DHCP configuration

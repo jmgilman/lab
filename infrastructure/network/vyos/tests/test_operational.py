@@ -50,10 +50,18 @@ class TestRoutingState:
     """Test routing table state."""
 
     def test_default_route_present(self, vyos_show, test_topology):
-        """Default route exists via WAN gateway."""
+        """Default route exists via WAN gateway (CCR2004 on transit link)."""
         output = vyos_show("show ip route 0.0.0.0/0")
         assert test_topology.wan_gateway in output, (
             f"Default route via {test_topology.wan_gateway} not found"
+        )
+
+    def test_home_network_route_present(self, vyos_show, test_topology):
+        """Static route to home network exists via transit link."""
+        output = vyos_show(f"show ip route {test_topology.home_cidr}")
+        assert test_topology.wan_gateway in output, (
+            f"Route to home network {test_topology.home_cidr} via "
+            f"{test_topology.wan_gateway} not found"
         )
 
     def test_connected_routes_present(self, vyos_show):
@@ -112,6 +120,6 @@ class TestFirewallState:
     def test_firewall_groups_exist(self, vyos_show):
         """Firewall network groups are defined."""
         output = vyos_show("show firewall group")
-        expected_groups = ["HOME_NETWORK", "LAB_NETWORKS", "RFC1918"]
+        expected_groups = ["HOME_NETWORK", "TRANSIT_LINK", "LAB_NETWORKS", "RFC1918"]
         for group in expected_groups:
             assert group in output, f"Firewall group {group} not found"
