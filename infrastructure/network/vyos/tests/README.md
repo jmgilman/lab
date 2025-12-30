@@ -1,8 +1,9 @@
 # VyOS Containerlab Tests
 
 This suite validates the VyOS gateway configuration using a Containerlab
-topology and pytest. The topology uses the production interface layout
-(`eth0` WAN, `eth1` trunk) to exercise the real configuration.
+topology and pytest. The test environment remaps production interfaces
+(eth0 WAN, eth1 trunk) to test interfaces (eth2 WAN, eth3 trunk) because
+Containerlab reserves eth0 for management.
 
 ## Prerequisites
 
