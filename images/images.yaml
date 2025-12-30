@@ -41,3 +41,8 @@ spec:
             command: ./images/hooks/talos-embed-config.sh
             args: ["cp-1"]
             timeout: 10m
+            # Declare input files that affect the transform output.
+            # Changes to these files will trigger a re-sync.
+            inputs:
+              - "infrastructure/compute/talos/talconfig.yaml"
+              - "infrastructure/compute/talos/talsecret.sops.yaml"

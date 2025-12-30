@@ -144,17 +144,24 @@ wait_for_vyos() {
     sudo docker exec "${container}" modprobe br_netfilter 2>/dev/null || true
     sudo docker exec "${container}" modprobe 8021q 2>/dev/null || true
 
-    # Wait for VyOS config to be applied
-    # Config migration takes ~100 seconds in container environments
-    for i in {1..90}; do
-        if docker logs "${container}" 2>&1 | grep -q "migrate.*configure"; then
-            echo "  VyOS config migration detected"
-            sleep 15
+    # Wait for container to become healthy
+    # The Dockerfile healthcheck uses: systemctl is-system-running --quiet
+    echo "  Waiting for container to become healthy..."
+    for i in {1..60}; do
+        health=$(docker inspect --format='{{.State.Health.Status}}' "${container}" 2>/dev/null || echo "unknown")
+        if [[ "${health}" == "healthy" ]]; then
+            echo "  Container is healthy"
             break
         fi
-        echo "  Waiting for VyOS config... ($i/90)"
+        if [[ $i -eq 60 ]]; then
+            echo "  WARNING: Container did not become healthy within timeout"
+        fi
         sleep 2
     done
+
+    # Wait briefly for VyOS services to fully initialize after systemd reports ready
+    echo "  Waiting for VyOS services to initialize..."
+    sleep 5
 
     # Verify configuration loaded
     echo "  Verifying configuration..."

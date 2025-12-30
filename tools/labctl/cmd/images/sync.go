@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -121,9 +122,19 @@ func runSync(_ *cobra.Command, _ []string) error {
 	// Track if any files were changed (for GitHub Actions output)
 	filesChanged := false
 
+	// Determine base directory for resolving hook input paths.
+	// Use the manifest's parent directory as the base.
+	manifestDir := filepath.Dir(syncManifest)
+	baseDir, err := filepath.Abs(manifestDir)
+	if err != nil {
+		return fmt.Errorf("resolve manifest directory: %w", err)
+	}
+	// Go up one level from images/ to repo root for input path resolution
+	baseDir = filepath.Dir(baseDir)
+
 	// Process each image
 	for _, img := range manifest.Spec.Images {
-		changed, err := syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, syncDryRun, syncForce, syncNoUpload, syncSkipTransformHooks)
+		changed, err := syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, baseDir, syncDryRun, syncForce, syncNoUpload, syncSkipTransformHooks)
 		if err != nil {
 			return fmt.Errorf("sync image %q: %w", img.Name, err)
 		}
@@ -148,16 +159,21 @@ func runSync(_ *cobra.Command, _ []string) error {
 
 // syncImage syncs a single image using the default HTTP client.
 // This is a convenience wrapper for syncImageWithHTTP.
-func syncImage(ctx context.Context, client store.Client, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, dryRun, force, noUpload, skipTransformHooks bool) (bool, error) {
-	return syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, dryRun, force, noUpload, skipTransformHooks)
+func syncImage(ctx context.Context, client store.Client, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, baseDir string, dryRun, force, noUpload, skipTransformHooks bool) (bool, error) {
+	return syncImageWithHTTP(ctx, client, http.DefaultClient, hookExecutor, cacheManager, img, baseDir, dryRun, force, noUpload, skipTransformHooks)
 }
 
 // syncImageWithHTTP syncs an image using the provided HTTP and store clients.
 // This function enables dependency injection for testing.
-func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTPClient, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, dryRun, force, noUpload, skipTransformHooks bool) (bool, error) {
+// The baseDir parameter specifies the directory for resolving hook input paths.
+func syncImageWithHTTP(ctx context.Context, client store.Client, httpClient HTTPClient, hookExecutor *hooks.Executor, cacheManager *cache.Manager, img config.Image, baseDir string, dryRun, force, noUpload, skipTransformHooks bool) (bool, error) {
 	fmt.Printf("Processing: %s\n", img.Name)
 
-	effectiveChecksum := img.EffectiveChecksum()
+	// Compute effective checksum including hook input files
+	effectiveChecksum, err := img.EffectiveChecksumWithInputs(baseDir)
+	if err != nil {
+		return false, fmt.Errorf("compute effective checksum: %w", err)
+	}
 
 	// Check if image already exists with matching checksum (skip in no-upload mode)
 	if !dryRun && !force && !noUpload {
