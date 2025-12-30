@@ -50,16 +50,17 @@ class TestTopology:
     """Expected values for the Containerlab test topology."""
 
     # WAN interface (transit link to CCR2004)
-    wan_iface: str = "eth4"
-    wan_ip: str = "10.0.0.2"
-    wan_cidr: str = "10.0.0.2/30"
-    wan_gateway: str = "10.0.0.1"
-    # wan-client simulates both CCR2004 (10.0.0.1) and home network (192.168.1.100)
-    wan_client_transit_ip: str = "10.0.0.1"
-    wan_client_ip: str = "192.168.1.100"
+    # Note: Test uses eth2 (remapped from production eth0 - Containerlab reserves eth0)
+    wan_iface: str = "eth2"
+    wan_ip: str = "192.168.0.2"
+    wan_cidr: str = "192.168.0.2/24"
+    wan_gateway: str = "192.168.0.1"
+    # wan-client simulates both CCR2004 and home network traffic
+    wan_client_transit_ip: str = "192.168.0.1"
+    wan_client_ip: str = "192.168.0.100"
 
-    # Trunk interface
-    trunk_iface: str = "eth5"
+    # Trunk interface (remapped from production eth1)
+    trunk_iface: str = "eth3"
 
     # VLAN networks (gateway IPs)
     mgmt_vif: str = "10"
@@ -86,9 +87,9 @@ class TestTopology:
     storage_gateway: str = "10.10.60.1"
     storage_client_ip: str = "10.10.60.100"
 
-    # Network ranges
-    transit_cidr: str = "10.0.0.0/30"
-    home_cidr: str = "192.168.1.0/24"
+    # Network ranges (test environment uses 192.168.0.0/24 for WAN simulation)
+    transit_cidr: str = "192.168.0.0/24"
+    home_cidr: str = "192.168.0.0/24"
     lab_cidr: str = "10.10.0.0/16"
 
     # DHCP configuration

@@ -209,13 +209,15 @@ infrastructure/network/vyos/
 
 #### Interface Mapping
 
-The test environment uses simplified interface mapping:
+The test environment remaps interfaces because Containerlab reserves eth0:
 
 | Production | Test | Network |
 |:-----------|:-----|:--------|
-| eth4 | eth1 | WAN |
-| eth5.10 | eth2 | MGMT (VLAN 10) |
-| eth5.30 | eth3 | Platform (VLAN 30) |
+| eth0 | eth2 | WAN (Transit to CCR2004) |
+| eth1.10 | eth3.10 | MGMT (VLAN 10) |
+| eth1.30 | eth3.30 | Platform (VLAN 30) |
+
+The `render-config-boot.sh` script automatically performs this remapping.
 
 #### CI Integration
 

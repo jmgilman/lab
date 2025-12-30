@@ -1,8 +1,14 @@
 #!/bin/bash
 # Render config.boot for containerlab testing
 #
-# Takes gateway.conf as the base configuration and injects an SSH public key
-# for test authentication.
+# Takes gateway.conf as the base configuration and:
+# 1. Remaps production interfaces to test interfaces (Containerlab reserves eth0)
+# 2. Injects an SSH public key for test authentication
+# 3. Adjusts network addresses for the isolated test environment
+#
+# Interface Mapping (production -> test):
+#   eth0 -> eth2 (WAN)
+#   eth1 -> eth3 (Trunk)
 #
 # Usage: render-config-boot.sh <ssh_public_key>
 
@@ -43,23 +49,39 @@ fi
 # Start with the base gateway.conf
 cp "${CONFIG_FILE}" "${OUTPUT_FILE}"
 
-# Inject SSH key into the system login section
-# Find the closing brace of the system block and insert login config before it
-# Use temp file approach for portability (macOS vs GNU sed)
+# Remap interfaces for test environment (Containerlab reserves eth0 for management)
+# Production: eth0 (WAN), eth1 (Trunk)
+# Test: eth2 (WAN), eth3 (Trunk)
+sed -i.bak -e 's/eth0/eth2/g' -e 's/eth1/eth3/g' "${OUTPUT_FILE}"
+rm -f "${OUTPUT_FILE}.bak"
+
+# Adjust WAN IP for test environment (192.168.0.0/24 instead of 10.0.0.0/30)
+# This allows the test topology to use a simpler addressing scheme
+sed -i.bak -e 's|10\.0\.0\.2/30|192.168.0.2/24|g' \
+           -e 's|next-hop 10\.0\.0\.1|next-hop 192.168.0.1|g' \
+           -e 's|192\.168\.1\.0/24|192.168.0.0/24|g' "${OUTPUT_FILE}"
+rm -f "${OUTPUT_FILE}.bak"
+
+# Inject SSH key into the existing vyos user authentication block
+# The gateway.conf already has the user vyos { authentication { ... }} structure
+# We just need to add the public-keys section inside it
 TEMP_FILE=$(mktemp)
-sed '/^system {$/,/^}$/{
-    /^}$/i\
-    login {\
-        user vyos {\
-            authentication {\
-                public-keys test {\
-                    key "'"${SSH_KEY_BODY}"'"\
-                    type '"${SSH_KEY_TYPE}"'\
-                }\
-            }\
-        }\
+awk '
+    /user vyos \{/ { in_user = 1 }
+    in_user && /authentication \{/ {
+        in_auth = 1
+        print
+        # Insert the public key right after the authentication { line
+        print "                public-keys test {"
+        print "                    key \"'"${SSH_KEY_BODY}"'\""
+        print "                    type '"${SSH_KEY_TYPE}"'"
+        print "                }"
+        next
     }
-}' "${OUTPUT_FILE}" > "${TEMP_FILE}"
+    in_auth && /\}/ { in_auth = 0 }
+    in_user && /^\s*\}\s*$/ && !in_auth { in_user = 0 }
+    { print }
+' "${OUTPUT_FILE}" > "${TEMP_FILE}"
 mv "${TEMP_FILE}" "${OUTPUT_FILE}"
 
 # Fix SELinux context if applicable (for container environments)
