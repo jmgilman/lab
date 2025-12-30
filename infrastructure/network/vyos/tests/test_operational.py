@@ -31,7 +31,6 @@ class TestInterfaceState:
         [
             ("10", "10.10.10.1"),
             ("20", "10.10.20.1"),
-            ("30", "10.10.30.1"),
             ("40", "10.10.40.1"),
             ("50", "10.10.50.1"),
             ("60", "10.10.60.1"),
@@ -44,6 +43,27 @@ class TestInterfaceState:
         )
         assert "up" in output.lower(), f"VLAN {vif} interface is not up"
         assert gateway_ip in output, f"VLAN {vif} missing IP {gateway_ip}"
+
+    def test_vlan30_bridge_interface_up(self, vyos_show, test_topology):
+        """VLAN 30 uses a bridge for the platform network.
+
+        The platform network (VLAN 30) is bridged to allow the UM760 anchor node
+        to participate via a direct connection (eth4 in test, eth2 in production).
+        The gateway IP lives on br30, not on the VLAN interface directly.
+        """
+        # Check that the VLAN interface is up and is a bridge member
+        vlan_output = vyos_show(
+            f"show interfaces ethernet {test_topology.trunk_iface} vif 30"
+        )
+        assert "up" in vlan_output.lower(), "VLAN 30 interface is not up"
+        assert "br30" in vlan_output, "VLAN 30 should be a member of br30"
+
+        # Check that the bridge has the gateway IP
+        bridge_output = vyos_show("show interfaces bridge br30")
+        assert "up" in bridge_output.lower(), "Bridge br30 is not up"
+        assert test_topology.platform_gateway in bridge_output, (
+            f"Bridge br30 missing IP {test_topology.platform_gateway}"
+        )
 
 
 class TestRoutingState:
