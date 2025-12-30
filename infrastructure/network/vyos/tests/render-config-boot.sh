@@ -62,23 +62,26 @@ sed -i.bak -e 's|10\.0\.0\.2/30|192.168.0.2/24|g' \
            -e 's|192\.168\.1\.0/24|192.168.0.0/24|g' "${OUTPUT_FILE}"
 rm -f "${OUTPUT_FILE}.bak"
 
-# Inject SSH key into the system login section
-# Find the closing brace of the system block and insert login config before it
-# Use temp file approach for portability (macOS vs GNU sed)
+# Inject SSH key into the existing vyos user authentication block
+# The gateway.conf already has the user vyos { authentication { ... }} structure
+# We just need to add the public-keys section inside it
 TEMP_FILE=$(mktemp)
-sed '/^system {$/,/^}$/{
-    /^}$/i\
-    login {\
-        user vyos {\
-            authentication {\
-                public-keys test {\
-                    key "'"${SSH_KEY_BODY}"'"\
-                    type '"${SSH_KEY_TYPE}"'\
-                }\
-            }\
-        }\
+awk '
+    /user vyos \{/ { in_user = 1 }
+    in_user && /authentication \{/ {
+        in_auth = 1
+        print
+        # Insert the public key right after the authentication { line
+        print "                public-keys test {"
+        print "                    key \"'"${SSH_KEY_BODY}"'\""
+        print "                    type '"${SSH_KEY_TYPE}"'"
+        print "                }"
+        next
     }
-}' "${OUTPUT_FILE}" > "${TEMP_FILE}"
+    in_auth && /\}/ { in_auth = 0 }
+    in_user && /^\s*\}\s*$/ && !in_auth { in_user = 0 }
+    { print }
+' "${OUTPUT_FILE}" > "${TEMP_FILE}"
 mv "${TEMP_FILE}" "${OUTPUT_FILE}"
 
 # Fix SELinux context if applicable (for container environments)
