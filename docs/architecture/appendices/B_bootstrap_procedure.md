@@ -202,7 +202,7 @@ VyOS provides the network connectivity (NAT, DHCP relay, inter-VLAN routing) req
 
 **Configuration Source:**
 The production VyOS configuration is maintained in Git at `infrastructure/network/vyos/configs/gateway.conf`. This file contains:
-- Interface configuration (WAN on eth4, trunk on eth5 with all VLANs)
+- Interface configuration (WAN on eth0, trunk on eth1 with all VLANs)
 - Firewall rules (WAN isolation, lab network policies)
 - NAT (masquerade for lab → internet)
 - BGP configuration (for Cilium LoadBalancer VIPs)

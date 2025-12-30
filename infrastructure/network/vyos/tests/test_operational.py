@@ -52,7 +52,7 @@ class TestRoutingState:
     def test_wan_gateway_reachable(self, ping, test_topology):
         """WAN gateway (transit link peer) is reachable from VyOS.
 
-        This validates that the eth4 interface is correctly configured
+        This validates that the eth0 interface is correctly configured
         and can reach the transit link peer (10.0.0.1).
         """
         # VyOS can reach the WAN gateway - verified through lab client connectivity

@@ -209,13 +209,13 @@ infrastructure/network/vyos/
 
 #### Interface Mapping
 
-The test environment uses simplified interface mapping:
+The test environment mirrors production interface mapping:
 
-| Production | Test | Network |
-|:-----------|:-----|:--------|
-| eth4 | eth1 | WAN |
-| eth5.10 | eth2 | MGMT (VLAN 10) |
-| eth5.30 | eth3 | Platform (VLAN 30) |
+| Interface | Network |
+|:----------|:--------|
+| eth0 | WAN (Transit to CCR2004) |
+| eth1.10 | MGMT (VLAN 10) |
+| eth1.30 | Platform (VLAN 30) |
 
 #### CI Integration
 

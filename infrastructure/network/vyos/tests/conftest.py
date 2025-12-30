@@ -50,7 +50,7 @@ class TestTopology:
     """Expected values for the Containerlab test topology."""
 
     # WAN interface (transit link to CCR2004)
-    wan_iface: str = "eth4"
+    wan_iface: str = "eth0"
     wan_ip: str = "10.0.0.2"
     wan_cidr: str = "10.0.0.2/30"
     wan_gateway: str = "10.0.0.1"
@@ -59,7 +59,7 @@ class TestTopology:
     wan_client_ip: str = "192.168.1.100"
 
     # Trunk interface
-    trunk_iface: str = "eth5"
+    trunk_iface: str = "eth1"
 
     # VLAN networks (gateway IPs)
     mgmt_vif: str = "10"

@@ -3,12 +3,12 @@
 # This topology creates a minimal lab environment to test the VyOS gateway
 # configuration. It simulates key network segments with Linux clients.
 #
-# Interface Mapping:
-#   eth0 - Containerlab management (reserved)
-#   eth4 - WAN interface (production mapping)
-#   eth5 - Trunk interface (production mapping)
+# Interface Mapping (production VP6630):
+#   eth0 - WAN interface (Top SFP+ -> CCR2004 DOWNLINK)
+#   eth1 - Trunk interface (Bottom SFP+ -> CRS Switch)
+#   eth2-eth5 - LAN interfaces (2.5GbE ports)
 #
-# This topology keeps the production interface layout and uses a VLAN-aware
+# This topology uses the production interface layout and uses a VLAN-aware
 # trunk so tests exercise the real gateway configuration.
 
 name: vyos-gateway-test
@@ -100,11 +100,11 @@ topology:
         - ip route replace default via 10.10.60.1
 
   links:
-    # WAN connection (gateway eth4 <-> wan-client eth1)
-    - endpoints: ["gateway:eth4", "wan-client:eth1"]
+    # WAN connection (gateway eth0 <-> wan-client eth1)
+    - endpoints: ["gateway:eth0", "wan-client:eth1"]
 
-    # Trunk connection (gateway eth5 <-> trunk-switch eth1)
-    - endpoints: ["gateway:eth5", "trunk-switch:eth1"]
+    # Trunk connection (gateway eth1 <-> trunk-switch eth1)
+    - endpoints: ["gateway:eth1", "trunk-switch:eth1"]
 
     # VLAN clients connected to trunk-switch
     - endpoints: ["trunk-switch:eth2", "mgmt-client:eth1"]
