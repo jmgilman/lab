@@ -1,0 +1,7 @@
+creation_rules:
+  - path_regex: .*\.sops\.yaml$
+    key_groups:
+      - age:
+          - age1d9n4x345xfahp0wmjak4gjzawpjvmcxmyf5knct7yy84mznq2sdqp0dy2d
+        pgp:
+          - 3965F16E293466CFE77D47F38C15553EEB22DB2A

@@ -94,6 +94,9 @@ VYOS_CONFIG = REPO_ROOT / "infrastructure/network/vyos/configs/gateway.conf"
 # e2 credentials file (SOPS encrypted)
 E2_CREDENTIALS_FILE = REPO_ROOT / "images/e2.sops.yaml"
 
+# SSH credentials file (SOPS encrypted)
+SSH_CREDENTIALS_FILE = REPO_ROOT / "infrastructure/network/vyos/ssh.sops.yaml"
+
 
 @dataclass
 class E2Credentials:
@@ -103,6 +106,15 @@ class E2Credentials:
     secret_key: str
     endpoint: str
     bucket: str
+
+
+@dataclass
+class SSHCredentials:
+    """SSH key and password credentials for VyOS management."""
+
+    private_key: str
+    public_key: str
+    password: str
 
 
 @dataclass
@@ -180,6 +192,38 @@ def load_e2_credentials() -> E2Credentials:
         )
     except KeyError as e:
         raise ValueError(f"Missing required key in e2 credentials: {e}") from e
+
+
+def load_ssh_credentials() -> SSHCredentials:
+    """Load SSH credentials from SOPS-encrypted file."""
+    if not SSH_CREDENTIALS_FILE.exists():
+        raise FileNotFoundError(f"SSH credentials file not found: {SSH_CREDENTIALS_FILE}")
+
+    # Check if sops is available
+    if not shutil.which("sops"):
+        raise RuntimeError("sops is not installed. Install with: brew install sops")
+
+    # Decrypt the file using sops
+    result = subprocess.run(
+        ["sops", "-d", str(SSH_CREDENTIALS_FILE)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to decrypt SSH credentials: {result.stderr}")
+
+    # Parse the YAML
+    data = yaml.safe_load(result.stdout)
+
+    try:
+        return SSHCredentials(
+            private_key=data["private_key"],
+            public_key=data["public_key"],
+            password=data["password"],
+        )
+    except KeyError as e:
+        raise ValueError(f"Missing required key in SSH credentials: {e}") from e
 
 
 # =============================================================================
@@ -1043,8 +1087,69 @@ def confirm_device(device: USBDevice, skip_ventoy: bool, yes: bool) -> bool:
     return console.confirm("Continue?", default=True)
 
 
+def inject_ssh_key_into_config(
+    config_content: str, ssh_public_key: str, password: str | None = None
+) -> str:
+    """Inject SSH public key and password into VyOS configuration.
+
+    The public key format is: ssh-ed25519 AAAAC3... comment
+    We need to extract the type and key data for VyOS config format.
+
+    The password is injected as plaintext-password - VyOS will hash it on load.
+    """
+    # Parse the public key: "ssh-ed25519 AAAAC3... vyos-gateway"
+    parts = ssh_public_key.strip().split()
+    if len(parts) < 2:
+        raise ValueError(f"Invalid SSH public key format: {ssh_public_key}")
+
+    key_type = parts[0]  # e.g., "ssh-ed25519"
+    key_data = parts[1]  # e.g., "AAAAC3..."
+
+    # The placeholder in gateway.conf looks like:
+    #     user vyos {
+    #         authentication {
+    #             /* SSH public keys added by Ansible deploy.yml */
+    #             /* Password set manually for console access */
+    #         }
+    #     }
+    # We replace the comments with actual key configuration
+
+    old_auth_block = """user vyos {
+            authentication {
+                /* SSH public keys added by Ansible deploy.yml */
+                /* Password set manually for console access */
+            }
+        }"""
+
+    # Build the new authentication block
+    password_line = ""
+    if password and password != "CHANGE_ME":
+        password_line = f"""
+                plaintext-password "{password}\""""
+
+    new_auth_block = f"""user vyos {{
+            authentication {{{password_line}
+                public-keys vyos-gateway {{
+                    key {key_data}
+                    type {key_type}
+                }}
+            }}
+        }}"""
+
+    if old_auth_block not in config_content:
+        raise ValueError(
+            "Could not find SSH key placeholder in gateway.conf. "
+            "Expected user vyos authentication block with comments."
+        )
+
+    return config_content.replace(old_auth_block, new_auth_block)
+
+
 def copy_files_to_usb(
-    mount_point: Path, vyos_iso: Path | None, talos_iso: Path | None
+    mount_point: Path,
+    vyos_iso: Path | None,
+    talos_iso: Path | None,
+    ssh_credentials: SSHCredentials | None = None,
 ) -> None:
     """Copy ISOs and config to USB."""
     console.info("Copying files to USB...")
@@ -1065,7 +1170,18 @@ def copy_files_to_usb(
 
     if VYOS_CONFIG.exists():
         console.info("Copying VyOS configuration...")
-        shutil.copy2(VYOS_CONFIG, mount_point / VYOS_CONFIG.name)
+        config_content = VYOS_CONFIG.read_text()
+
+        if ssh_credentials:
+            console.info("Injecting SSH credentials into configuration...")
+            config_content = inject_ssh_key_into_config(
+                config_content, ssh_credentials.public_key, ssh_credentials.password
+            )
+            console.success("SSH credentials injected")
+
+        # Write the (possibly modified) config to USB
+        dest_config = mount_point / VYOS_CONFIG.name
+        dest_config.write_text(config_content)
         console.success("VyOS configuration copied")
 
     console.success("All files copied to USB")
@@ -1099,6 +1215,19 @@ def main(device: str | None, skip_download: bool, skip_ventoy: bool, yes: bool) 
         except RuntimeError as e:
             console.error(str(e))
             raise SystemExit(1)
+
+    # Load SSH credentials for config injection
+    ssh_credentials = None
+    try:
+        console.info("Loading SSH credentials...")
+        ssh_credentials = load_ssh_credentials()
+        console.success("SSH credentials loaded")
+    except FileNotFoundError as e:
+        console.error(str(e))
+        raise SystemExit(1)
+    except RuntimeError as e:
+        console.error(str(e))
+        raise SystemExit(1)
 
     # Initialize managers
     usb_mgr = USBDeviceManager()
@@ -1214,7 +1343,7 @@ def main(device: str | None, skip_download: bool, skip_ventoy: bool, yes: bool) 
         raise SystemExit(1)
     console.success(f"Ventoy partition mounted at: {mount_point}")
 
-    copy_files_to_usb(mount_point, vyos_iso, talos_iso)
+    copy_files_to_usb(mount_point, vyos_iso, talos_iso, ssh_credentials)
 
     # Eject USB
     console.info("Ejecting USB device...")
@@ -1231,7 +1360,7 @@ def main(device: str | None, skip_download: bool, skip_ventoy: bool, yes: bool) 
     console.console.print("  - Ventoy bootloader installed")
     console.console.print("  - VyOS Stream ISO (for router installation)")
     console.console.print("  - Talos ISO with embedded config (for UM760 bootstrap)")
-    console.console.print("  - gateway.conf (VyOS configuration)")
+    console.console.print("  - gateway.conf (VyOS configuration with SSH key)")
     console.console.print()
     console.console.print("[bold]Next steps:[/bold]")
     console.console.print(
