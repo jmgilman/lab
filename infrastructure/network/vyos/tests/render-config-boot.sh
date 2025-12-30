@@ -49,10 +49,11 @@ fi
 # Start with the base gateway.conf
 cp "${CONFIG_FILE}" "${OUTPUT_FILE}"
 
-# Remap interfaces for test environment (Containerlab reserves eth0 for management)
-# Production: eth0 (WAN), eth1 (Trunk)
-# Test: eth2 (WAN), eth3 (Trunk)
-sed -i.bak -e 's/eth0/eth2/g' -e 's/eth1/eth3/g' "${OUTPUT_FILE}"
+# Remap interfaces for test environment (Containerlab reserves eth0/eth1 for management)
+# Production: eth0 (WAN), eth1 (Trunk), eth2+ (LAN)
+# Test: eth2 (WAN), eth3 (Trunk), eth4+ (LAN)
+# Order matters: remap higher interfaces first to avoid double-replacement
+sed -i.bak -e 's/eth2/eth4/g' -e 's/eth0/eth2/g' -e 's/eth1/eth3/g' "${OUTPUT_FILE}"
 rm -f "${OUTPUT_FILE}.bak"
 
 # Adjust WAN IP for test environment (192.168.0.0/24 instead of 10.0.0.0/30)

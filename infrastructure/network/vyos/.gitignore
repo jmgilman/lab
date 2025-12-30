@@ -1,0 +1,10 @@
+# Rendered config contains secrets - never commit
+.rendered-gateway.conf
+
+# Backups are local artifacts
+backups/
+
+# Test artifacts
+tests/.vyos-test-key
+tests/.vyos-test-key.pub
+tests/config.boot
