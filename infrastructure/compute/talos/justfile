@@ -1,0 +1,252 @@
+# Talos Platform Cluster Management
+#
+# Prerequisites:
+#   - talhelper (brew install talhelper)
+#   - talosctl (brew install siderolabs/tap/talosctl)
+#   - sops (brew install sops) - for decrypting secrets
+#
+# Usage:
+#   just genconfig       # Generate machine configs
+#   just bootstrap       # Bootstrap CP-1 (first run only)
+#   just kubeconfig      # Fetch kubeconfig
+#   just dashboard       # Open talosctl dashboard (all nodes)
+#   just status cp-1     # Check status of a specific node
+#   just logs kubelet cp-2  # View logs from a service on a node
+
+# Node name to IP mapping
+# Use these names with any command that takes a 'node' parameter
+node_cp1 := "10.10.30.10"
+node_cp2 := "10.10.30.11"
+node_cp3 := "10.10.30.12"
+
+# All control plane nodes (comma-separated for talosctl)
+all_nodes := node_cp1 + "," + node_cp2 + "," + node_cp3
+
+# Generated config paths
+config_dir := "clusterconfig"
+talosconfig := config_dir / "talosconfig"
+
+# Helper to resolve node name to IP
+[private]
+_resolve node:
+    #!/usr/bin/env bash
+    case "{{ node }}" in
+        cp-1|cp1|1) echo "{{ node_cp1 }}" ;;
+        cp-2|cp2|2) echo "{{ node_cp2 }}" ;;
+        cp-3|cp3|3) echo "{{ node_cp3 }}" ;;
+        all)        echo "{{ all_nodes }}" ;;
+        10.10.30.*) echo "{{ node }}" ;;
+        *)          echo "Error: Unknown node '{{ node }}'. Use cp-1, cp-2, cp-3, or all" >&2; exit 1 ;;
+    esac
+
+# Generate machine configurations using talhelper
+genconfig:
+    talhelper genconfig --config-file talconfig.yaml --secret-file talsecret.sops.yaml --out-dir {{ config_dir }}
+    @echo "Configs generated in {{ config_dir }}/"
+
+# Bootstrap the first control plane node (CP-1)
+# Only run this ONCE when initializing a new cluster
+bootstrap: _require-config
+    talosctl bootstrap \
+        --talosconfig {{ talosconfig }} \
+        --nodes {{ node_cp1 }}
+
+# Fetch kubeconfig and merge into default location
+kubeconfig: _require-config
+    talosctl kubeconfig \
+        --talosconfig {{ talosconfig }} \
+        --nodes {{ node_cp1 }} \
+        --force
+    @echo "Kubeconfig merged into ~/.kube/config"
+
+# Fetch kubeconfig to a specific file
+kubeconfig-file file: _require-config
+    talosctl kubeconfig {{ file }} \
+        --talosconfig {{ talosconfig }} \
+        --nodes {{ node_cp1 }} \
+        --force
+    @echo "Kubeconfig written to {{ file }}"
+
+# Open talosctl dashboard
+# Usage: just dashboard [node]
+# Examples:
+#   just dashboard        # All nodes
+#   just dashboard cp-1   # Single node
+#   just dashboard all    # Explicit all nodes
+dashboard node="all": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl dashboard \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes"
+
+# Check cluster health (all nodes)
+health: _require-config
+    talosctl health \
+        --talosconfig {{ talosconfig }} \
+        --nodes {{ all_nodes }}
+
+# Get machine status
+# Usage: just status [node]
+status node="all": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl get machinestatus \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes"
+
+# Get detailed machine config from a node
+get-config node="cp-1": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl get machineconfig \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes" \
+        -o yaml
+
+# View services on node(s)
+# Usage: just services [node]
+services node="all": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl services \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes"
+
+# View logs from a service
+# Usage: just logs <service> [node]
+# Examples:
+#   just logs kubelet         # kubelet logs from cp-1
+#   just logs etcd cp-2       # etcd logs from cp-2
+#   just logs apid all        # apid logs from all nodes
+logs service node="cp-1": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl logs {{ service }} \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes"
+
+# Follow logs from a service (streaming)
+logs-follow service node="cp-1": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl logs {{ service }} \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes" \
+        --follow
+
+# Apply configuration to a node
+# Usage: just apply-config <node>
+apply-config node: _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Resolve node name to IP and config file
+    case "{{ node }}" in
+        cp-1|cp1|1|{{ node_cp1 }})
+            node_ip="{{ node_cp1 }}"
+            config_file="{{ config_dir }}/platform-cp-1.yaml"
+            ;;
+        cp-2|cp2|2|{{ node_cp2 }})
+            node_ip="{{ node_cp2 }}"
+            config_file="{{ config_dir }}/platform-cp-2.yaml"
+            ;;
+        cp-3|cp3|3|{{ node_cp3 }})
+            node_ip="{{ node_cp3 }}"
+            config_file="{{ config_dir }}/platform-cp-3.yaml"
+            ;;
+        *)
+            echo "Error: Unknown node '{{ node }}'. Use cp-1, cp-2, or cp-3"
+            exit 1
+            ;;
+    esac
+
+    echo "Applying $config_file to $node_ip..."
+    talosctl apply-config \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$node_ip" \
+        --file "$config_file"
+
+# Upgrade Talos on a node
+# Usage: just upgrade <node> <version>
+# Example: just upgrade cp-1 v1.12.0
+upgrade node version: _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl upgrade \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes" \
+        --image "ghcr.io/siderolabs/installer:{{ version }}"
+
+# Reset a node (DANGEROUS - removes from cluster)
+[confirm("This will RESET the node and remove it from the cluster. Continue?")]
+reset node: _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl reset \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes" \
+        --graceful=false \
+        --reboot
+
+# Get dmesg from node(s)
+dmesg node="cp-1": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl dmesg \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes"
+
+# Get memory/cpu info from node(s)
+resources node="all": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl get cpu,memory \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes"
+
+# List disks on node(s)
+disks node="all": _require-config
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nodes=$(just _resolve {{ node }})
+    talosctl disks \
+        --talosconfig {{ talosconfig }} \
+        --nodes "$nodes"
+
+# Get etcd member list
+etcd-members: _require-config
+    talosctl etcd members \
+        --talosconfig {{ talosconfig }} \
+        --nodes {{ node_cp1 }}
+
+# Get etcd status
+etcd-status: _require-config
+    talosctl etcd status \
+        --talosconfig {{ talosconfig }} \
+        --nodes {{ all_nodes }}
+
+# List all available recipes
+help:
+    @just --list
+
+# Run any talosctl command with correct config
+# Usage: just talosctl <args>
+# Example: just talosctl get members --nodes 10.10.30.10
+talosctl *args: _require-config
+    talosctl --talosconfig {{ talosconfig }} {{ args }}
+
+# Internal: Check that configs have been generated
+[private]
+_require-config:
+    @test -f {{ talosconfig }} || (echo "Error: Run 'just genconfig' first" && exit 1)

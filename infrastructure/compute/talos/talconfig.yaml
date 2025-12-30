@@ -41,9 +41,10 @@ nodes:
       type: nvme
     # UM760 uses hybrid trunk: VLAN 20 native, VLAN 30 tagged
     # Configure VLAN 30 sub-interface for platform traffic
+    # MAC address is for enp2s0 (2.5GbE port connected to VyOS eth2)
     networkInterfaces:
       - deviceSelector:
-          hardwareAddr: "*"
+          hardwareAddr: "38:05:25:34:25:d0"
         dhcp: false
         vlans:
           - vlanId: 30
