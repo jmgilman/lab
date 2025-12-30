@@ -197,7 +197,9 @@ def load_e2_credentials() -> E2Credentials:
 def load_ssh_credentials() -> SSHCredentials:
     """Load SSH credentials from SOPS-encrypted file."""
     if not SSH_CREDENTIALS_FILE.exists():
-        raise FileNotFoundError(f"SSH credentials file not found: {SSH_CREDENTIALS_FILE}")
+        raise FileNotFoundError(
+            f"SSH credentials file not found: {SSH_CREDENTIALS_FILE}"
+        )
 
     # Check if sops is available
     if not shutil.which("sops"):
