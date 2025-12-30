@@ -294,6 +294,30 @@ spec:
 `,
 		},
 		{
+			name: "valid manifest with transform hooks with inputs",
+			yaml: `apiVersion: images.lab.gilman.io/v1alpha1
+kind: ImageManifest
+metadata:
+  name: lab-images
+spec:
+  images:
+    - name: talos-iso
+      source:
+        url: https://factory.talos.dev/image/talos-amd64.iso
+        checksum: sha256:abc123
+      destination: talos/talos-amd64.iso
+      hooks:
+        transform:
+          - name: embed-config
+            command: ./scripts/embed-config.sh
+            args: ["--config", "machine.yaml"]
+            timeout: 10m
+            inputs:
+              - "infrastructure/compute/talos/talconfig.yaml"
+              - "infrastructure/compute/talos/**/*.yaml"
+`,
+		},
+		{
 			name: "invalid transform hook missing name",
 			yaml: `apiVersion: images.lab.gilman.io/v1alpha1
 kind: ImageManifest
@@ -439,6 +463,212 @@ func TestImage_EffectiveChecksum(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.image.EffectiveChecksum())
 		})
 	}
+}
+
+func TestImage_EffectiveChecksumWithInputs(t *testing.T) {
+	t.Run("returns base checksum when no hooks", func(t *testing.T) {
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+		}
+
+		checksum, err := img.EffectiveChecksumWithInputs(t.TempDir())
+
+		require.NoError(t, err)
+		assert.Equal(t, "sha256:abc123", checksum)
+	})
+
+	t.Run("returns base checksum when hooks have no inputs", func(t *testing.T) {
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{Name: "test-hook", Command: "echo"},
+				},
+			},
+		}
+
+		checksum, err := img.EffectiveChecksumWithInputs(t.TempDir())
+
+		require.NoError(t, err)
+		assert.Equal(t, "sha256:abc123", checksum)
+	})
+
+	t.Run("incorporates input file hash when inputs are declared", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create a test input file
+		inputFile := filepath.Join(dir, "config.yaml")
+		err := os.WriteFile(inputFile, []byte("key: value"), 0o600)
+		require.NoError(t, err)
+
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{
+						Name:    "test-hook",
+						Command: "echo",
+						Inputs:  []string{"config.yaml"},
+					},
+				},
+			},
+		}
+
+		checksum, err := img.EffectiveChecksumWithInputs(dir)
+
+		require.NoError(t, err)
+		// Checksum should have "+inputs:" suffix with hash
+		assert.Contains(t, checksum, "sha256:abc123+inputs:")
+		assert.Len(t, checksum, len("sha256:abc123+inputs:")+64) // SHA256 is 64 hex chars
+	})
+
+	t.Run("different file contents produce different checksums", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create first test file
+		inputFile := filepath.Join(dir, "config.yaml")
+		err := os.WriteFile(inputFile, []byte("key: value1"), 0o600)
+		require.NoError(t, err)
+
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{Name: "test-hook", Command: "echo", Inputs: []string{"config.yaml"}},
+				},
+			},
+		}
+
+		checksum1, err := img.EffectiveChecksumWithInputs(dir)
+		require.NoError(t, err)
+
+		// Modify the file
+		err = os.WriteFile(inputFile, []byte("key: value2"), 0o600)
+		require.NoError(t, err)
+
+		checksum2, err := img.EffectiveChecksumWithInputs(dir)
+		require.NoError(t, err)
+
+		assert.NotEqual(t, checksum1, checksum2)
+	})
+
+	t.Run("handles glob patterns", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create test files matching glob
+		err := os.WriteFile(filepath.Join(dir, "file1.yaml"), []byte("file1"), 0o600)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(dir, "file2.yaml"), []byte("file2"), 0o600)
+		require.NoError(t, err)
+
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{Name: "test-hook", Command: "echo", Inputs: []string{"*.yaml"}},
+				},
+			},
+		}
+
+		checksum, err := img.EffectiveChecksumWithInputs(dir)
+
+		require.NoError(t, err)
+		assert.Contains(t, checksum, "+inputs:")
+	})
+
+	t.Run("handles multiple hooks with inputs", func(t *testing.T) {
+		dir := t.TempDir()
+
+		err := os.WriteFile(filepath.Join(dir, "config1.yaml"), []byte("config1"), 0o600)
+		require.NoError(t, err)
+		err = os.WriteFile(filepath.Join(dir, "config2.yaml"), []byte("config2"), 0o600)
+		require.NoError(t, err)
+
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{Name: "hook1", Command: "echo", Inputs: []string{"config1.yaml"}},
+					{Name: "hook2", Command: "echo", Inputs: []string{"config2.yaml"}},
+				},
+			},
+		}
+
+		checksum, err := img.EffectiveChecksumWithInputs(dir)
+
+		require.NoError(t, err)
+		assert.Contains(t, checksum, "+inputs:")
+	})
+
+	t.Run("handles validation.expected as base checksum", func(t *testing.T) {
+		dir := t.TempDir()
+
+		err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("data"), 0o600)
+		require.NoError(t, err)
+
+		img := Image{
+			Source:     Source{Checksum: "sha256:source"},
+			Validation: &Validation{Expected: "sha256:validated"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{Name: "test-hook", Command: "echo", Inputs: []string{"config.yaml"}},
+				},
+			},
+		}
+
+		checksum, err := img.EffectiveChecksumWithInputs(dir)
+
+		require.NoError(t, err)
+		// Should use validation.expected as base
+		assert.Contains(t, checksum, "sha256:validated+inputs:")
+	})
+
+	t.Run("returns empty string for no matching files (glob finds nothing)", func(t *testing.T) {
+		dir := t.TempDir()
+
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{Name: "test-hook", Command: "echo", Inputs: []string{"nonexistent*.yaml"}},
+				},
+			},
+		}
+
+		// Should succeed but produce a checksum based on empty file list
+		checksum, err := img.EffectiveChecksumWithInputs(dir)
+		require.NoError(t, err)
+		// With no files matching, the inputs hash is of empty content
+		assert.Contains(t, checksum, "+inputs:")
+	})
+
+	t.Run("ignores directories in glob matches", func(t *testing.T) {
+		dir := t.TempDir()
+
+		// Create a subdirectory
+		subdir := filepath.Join(dir, "subdir")
+		err := os.Mkdir(subdir, 0o750)
+		require.NoError(t, err)
+
+		// Create a file
+		err = os.WriteFile(filepath.Join(dir, "file.yaml"), []byte("file"), 0o600)
+		require.NoError(t, err)
+
+		img := Image{
+			Source: Source{Checksum: "sha256:abc123"},
+			Hooks: &Hooks{
+				Transform: []Hook{
+					{Name: "test-hook", Command: "echo", Inputs: []string{"*"}},
+				},
+			},
+		}
+
+		// Should succeed and only include the file, not the directory
+		checksum, err := img.EffectiveChecksumWithInputs(dir)
+
+		require.NoError(t, err)
+		assert.Contains(t, checksum, "+inputs:")
+	})
 }
 
 func TestImageManifest_FindImageByName(t *testing.T) {

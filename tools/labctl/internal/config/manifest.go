@@ -2,9 +2,14 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -69,6 +74,11 @@ type Hook struct {
 	// WorkDir is the working directory for the command.
 	// If not specified, uses the current working directory.
 	WorkDir string `yaml:"workDir,omitempty"`
+	// Inputs declares files/globs that affect the hook's output.
+	// When specified, changes to these files will trigger a re-sync
+	// even if the source checksum matches. Paths are relative to the
+	// repository root. Supports glob patterns (e.g., "config/*.yaml").
+	Inputs []string `yaml:"inputs,omitempty"`
 }
 
 // Source defines where to download the image from.
@@ -96,13 +106,105 @@ type Replacement struct {
 	Value   string `yaml:"value"`   // Template: {{ .Source.URL }}, {{ .Source.Checksum }}
 }
 
-// EffectiveChecksum returns the checksum to use for idempotency checks.
+// EffectiveChecksum returns the base checksum to use for idempotency checks.
 // If validation.expected is set, use that; otherwise use source.checksum.
+// Note: This does not include hook input files. Use EffectiveChecksumWithInputs
+// for a checksum that incorporates transform hook input file changes.
 func (i *Image) EffectiveChecksum() string {
 	if i.Validation != nil && i.Validation.Expected != "" {
 		return i.Validation.Expected
 	}
 	return i.Source.Checksum
+}
+
+// EffectiveChecksumWithInputs returns a checksum that incorporates both the
+// base checksum and the hash of any input files declared by transform hooks.
+// This ensures that changes to transform hook inputs trigger a re-sync.
+// If no inputs are declared, returns the base EffectiveChecksum().
+// The baseDir parameter specifies the directory relative to which input
+// paths are resolved (typically the repository root or manifest directory).
+func (i *Image) EffectiveChecksumWithInputs(baseDir string) (string, error) {
+	baseChecksum := i.EffectiveChecksum()
+
+	// Collect all inputs from transform hooks
+	var allInputs []string
+	if i.Hooks != nil {
+		for _, h := range i.Hooks.Transform {
+			allInputs = append(allInputs, h.Inputs...)
+		}
+	}
+
+	// If no inputs, return base checksum
+	if len(allInputs) == 0 {
+		return baseChecksum, nil
+	}
+
+	// Compute hash of all input files
+	inputsHash, err := hashInputFiles(baseDir, allInputs)
+	if err != nil {
+		return "", fmt.Errorf("hash input files: %w", err)
+	}
+
+	// Combine base checksum with inputs hash
+	// Format: "base_checksum+inputs:hash"
+	return baseChecksum + "+inputs:" + inputsHash, nil
+}
+
+// hashInputFiles computes a combined SHA256 hash of all files matching the
+// given glob patterns. Files are processed in sorted order for determinism.
+func hashInputFiles(baseDir string, patterns []string) (string, error) {
+	// Expand all globs and collect unique file paths
+	fileSet := make(map[string]struct{})
+	for _, pattern := range patterns {
+		fullPattern := filepath.Join(baseDir, pattern)
+		matches, err := filepath.Glob(fullPattern)
+		if err != nil {
+			return "", fmt.Errorf("invalid glob pattern %q: %w", pattern, err)
+		}
+		for _, match := range matches {
+			// Only include regular files, not directories
+			info, err := os.Stat(match)
+			if err != nil {
+				return "", fmt.Errorf("stat %q: %w", match, err)
+			}
+			if info.Mode().IsRegular() {
+				fileSet[match] = struct{}{}
+			}
+		}
+	}
+
+	// Sort file paths for deterministic hashing
+	var files []string
+	for f := range fileSet {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+
+	// Compute combined hash
+	h := sha256.New()
+	for _, file := range files {
+		// Include relative path in hash (so renames are detected)
+		relPath, err := filepath.Rel(baseDir, file)
+		if err != nil {
+			relPath = file
+		}
+		h.Write([]byte(relPath))
+		h.Write([]byte{0}) // Separator
+
+		// Hash file contents
+		f, err := os.Open(file) //nolint:gosec // G304: Paths come from trusted manifest
+		if err != nil {
+			return "", fmt.Errorf("open %q: %w", file, err)
+		}
+		if _, err := io.Copy(h, f); err != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("read %q: %w", file, err)
+		}
+		_ = f.Close()
+		h.Write([]byte{0}) // Separator between files
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // FindImageByName returns the image with the given name, or nil if not found.
